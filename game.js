@@ -43,7 +43,8 @@ function stopHuntTurnTimer() {
 
 function getSmartHuntDurationSeconds() {
   var livingCount = G.players.filter(function(p) { return !p.spirit; }).length;
-  var oneToOnePhones = (hostConnections.length >= livingCount && livingCount > 1);
+  var totalPhones = Math.max(hostConnections.length, Object.keys(connectedPhoneIds).length);
+  var oneToOnePhones = (totalPhones >= livingCount && livingCount > 1);
   if (!G.banishmentMode) {
     return oneToOnePhones ? 12 : (8 + Math.max(1, livingCount) * 6);
   }
@@ -411,128 +412,109 @@ function generateMultiFloorHouse(sizeKey, numBackDoors) {
 }
 
 /* ============================================================================
-   4. LOBBY, INITIALIZATION & MULTIPLAYER PEERJS ENGINE (GITHUB PAGES + TURN)
+   4. LOBBY, INITIALIZATION & MULTIPLAYER DUAL-ENGINE (WSS RELAY + PEERJS)
 ============================================================================ */
 let hostPeer = null, hostRoomCode = "", hostConnections = [];
 let clientPeer = null, clientConn = null, isMobileClient = false, mobileCharIdx = 0;
-let syncRetryInterval = null, hasReceivedHostSync = false;
+let mqttClient = null, mqttConnected = false, connectedPhoneIds = {};
 
-// Includes both Google STUN and free OpenRelay TURN servers so mobile/Wi-Fi NAT never blocks GitHub Pages
-const PEER_CONFIG = {
-  debug: 2,
-  config: {
-    iceServers: [
-      { urls: "stun:stun.l.google.com:19302" },
-      { urls: "stun:stun1.l.google.com:19302" },
-      {
-        urls: "turn:openrelay.metered.ca:80",
-        username: "openrelayproject",
-        credential: "openrelayproject"
-      },
-      {
-        urls: "turn:openrelay.metered.ca:443",
-        username: "openrelayproject",
-        credential: "openrelayproject"
-      },
-      {
-        urls: "turn:openrelay.metered.ca:443?transport=tcp",
-        username: "openrelayproject",
-        credential: "openrelayproject"
-      }
-    ]
-  }
-};
+const MQTT_BROKERS = [
+  "wss://broker.emqx.io:8084/mqtt",
+  "wss://test.mosquitto.org:8081/mqtt"
+];
 
 function sanitizeGameStateForSync() {
-  try {
-    return JSON.parse(JSON.stringify(G));
-  } catch (e) {
-    return G;
-  }
+  try { return JSON.parse(JSON.stringify(G)); } catch (e) { return G; }
+}
+
+function getTopicBase(code) {
+  return "spectral_proto_v98/" + (code || hostRoomCode).toUpperCase();
 }
 
 function initHostPeer() {
-  if (hostPeer && !hostPeer.destroyed) return;
   if (!hostRoomCode) {
     hostRoomCode = "SP" + Math.floor(1000 + Math.random() * 9000);
   }
-  try {
-    hostPeer = new Peer("spectral-host-" + hostRoomCode, PEER_CONFIG);
+  var codeEl = document.getElementById("host-room-code-display");
+  if (codeEl) codeEl.textContent = hostRoomCode;
+  updateQRDisplay();
 
-    hostPeer.on("open", function(id) {
-      console.log("🎮 Host TV Peer Open:", id);
-      var codeEl = document.getElementById("host-room-code-display");
-      if (codeEl) codeEl.textContent = hostRoomCode;
-      updateQRDisplay();
-    });
+  // 1. Primary Transport: Secure WebSocket (WSS Port 443 - Never blocked by Wi-Fi / 5G!)
+  if (window.mqtt && !mqttClient) {
+    connectHostMqtt(0);
+  }
 
-    hostPeer.on("connection", function(conn) {
-      console.log("📱 Incoming Phone Connection:", conn.peer);
-      if (hostConnections.indexOf(conn) === -1) hostConnections.push(conn);
-      updatePhoneCountUI();
-      showDiceToast("📱 PHONE P.D.A. LINKED!", "var(--green)");
-
-      function pushSyncToPhone() {
-        if (conn && conn.open) {
-          try {
+  // 2. Secondary Transport: PeerJS WebRTC
+  if (window.Peer && !hostPeer) {
+    try {
+      hostPeer = new Peer("spectral-host-" + hostRoomCode);
+      hostPeer.on("open", function() {
+        var cEl = document.getElementById("host-room-code-display");
+        if (cEl) cEl.textContent = hostRoomCode;
+        updateQRDisplay();
+      });
+      hostPeer.on("connection", function(conn) {
+        if (hostConnections.indexOf(conn) === -1) hostConnections.push(conn);
+        updatePhoneCountUI();
+        conn.on("open", function() {
+          conn.send({ type: "STATE_SYNC", G: sanitizeGameStateForSync() });
+        });
+        conn.on("data", function(data) {
+          if (data && data.type === "REQUEST_SYNC") {
             conn.send({ type: "STATE_SYNC", G: sanitizeGameStateForSync() });
-          } catch (err) {
-            console.error("Failed to send STATE_SYNC:", err);
+          } else if (data) {
+            handleRemotePhoneCommand(data);
           }
-        }
-      }
-
-      conn.on("open", function() {
-        updatePhoneCountUI();
-        pushSyncToPhone();
-        setTimeout(pushSyncToPhone, 350);
+        });
+        conn.on("close", function() {
+          hostConnections = hostConnections.filter(function(c) { return c !== conn; });
+          updatePhoneCountUI();
+        });
       });
-
-      if (conn.open) pushSyncToPhone();
-
-      conn.on("data", function(data) {
-        if (!data) return;
-        if (data.type === "REQUEST_SYNC") {
-          pushSyncToPhone();
-          return;
-        }
-        handleRemotePhoneCommand(data);
-      });
-
-      conn.on("close", function() {
-        hostConnections = hostConnections.filter(function(c) { return c !== conn; });
-        updatePhoneCountUI();
-      });
-
-      conn.on("error", function(err) {
-        console.warn("Host conn error:", err);
-        hostConnections = hostConnections.filter(function(c) { return c !== conn; });
-        updatePhoneCountUI();
-      });
-    });
-
-    hostPeer.on("disconnected", function() {
-      if (hostPeer && !hostPeer.destroyed) {
-        try { hostPeer.reconnect(); } catch (e) {}
-      }
-    });
-
-    hostPeer.on("error", function(err) {
-      console.warn("Host Peer Error:", err.type, err);
-      if (err && err.type === "unavailable-id") {
-        hostPeer = null;
-        hostRoomCode = "SP" + Math.floor(1000 + Math.random() * 9000);
-        setTimeout(initHostPeer, 400);
-      }
-    });
-  } catch (e) {
-    console.error("initHostPeer exception:", e);
+    } catch (e) {}
   }
 }
 
+function connectHostMqtt(brokerIdx) {
+  if (!window.mqtt) return;
+  var url = MQTT_BROKERS[brokerIdx % MQTT_BROKERS.length];
+  try {
+    mqttClient = mqtt.connect(url, { connectTimeout: 4000, reconnectPeriod: 2000 });
+    mqttClient.on("connect", function() {
+      mqttConnected = true;
+      var cmdTopic = getTopicBase(hostRoomCode) + "/cmd";
+      mqttClient.subscribe(cmdTopic);
+      broadcastStateToPhones();
+      console.log("🛰️ Host WSS Relay Live on Port 443! Room:", hostRoomCode);
+    });
+    mqttClient.on("message", function(topic, message) {
+      try {
+        var data = JSON.parse(message.toString());
+        if (data.phoneId && !connectedPhoneIds[data.phoneId]) {
+          connectedPhoneIds[data.phoneId] = true;
+          updatePhoneCountUI();
+          showDiceToast("📱 PHONE P.D.A. CONNECTED!", "var(--green)");
+        }
+        if (data.type === "REQUEST_SYNC") {
+          broadcastStateToPhones();
+        } else {
+          handleRemotePhoneCommand(data);
+        }
+      } catch (e) {}
+    });
+    mqttClient.on("error", function() {
+      if (!mqttConnected && brokerIdx < MQTT_BROKERS.length - 1) {
+        try { mqttClient.end(true); } catch (e) {}
+        connectHostMqtt(brokerIdx + 1);
+      }
+    });
+  } catch (e) {}
+}
+
 function updatePhoneCountUI() {
+  var total = Math.max(hostConnections.length, Object.keys(connectedPhoneIds).length);
   var el = document.getElementById("connected-phones-count");
-  if (el) el.textContent = hostConnections.length + " Phone(s) Connected";
+  if (el) el.textContent = total + " Phone(s) Connected";
 }
 
 function updateQRDisplay() {
@@ -544,13 +526,25 @@ function updateQRDisplay() {
 }
 
 function broadcastStateToPhones() {
-  if (isMobileClient) return;
+  if (isMobileClient || !G || !G.players) return;
   var cleanG = sanitizeGameStateForSync();
+  var payloadStr = JSON.stringify({ type: "STATE_SYNC", G: cleanG });
+
+  // 1. Broadcast over WSS Relay (with retain: true so joining phones get state immediately)
+  if (mqttClient && mqttConnected) {
+    try {
+      mqttClient.publish(getTopicBase(hostRoomCode) + "/state", payloadStr, { qos: 0, retain: true });
+    } catch (e) {}
+  }
+
+  // 2. Broadcast over PeerJS
   hostConnections.forEach(function(conn) {
     if (conn && conn.open) {
       try { conn.send({ type: "STATE_SYNC", G: cleanG }); } catch (e) {}
     }
   });
+
+  // 3. Broadcast over LocalStorage (same-PC testing tab)
   try { localStorage.setItem("SPECTRAL_LIVE_STATE", JSON.stringify(cleanG)); } catch (e) {}
 }
 
@@ -609,12 +603,24 @@ function handleRemotePhoneCommand(cmd) {
   else if (act === "toggle-end-turn") togglePlayerEndTurnReady(G.selectedChar);
 }
 
+const myPhoneId = "pda_" + Math.floor(10000 + Math.random() * 90000);
+
 function sendPhoneCmd(payload) {
   payload.charIdx = isMobileClient ? mobileCharIdx : (G.selectedChar || 0);
+  payload.phoneId = myPhoneId;
+
+  var sentRemote = false;
+  if (mqttClient && mqttConnected && hostRoomCode) {
+    try {
+      mqttClient.publish(getTopicBase(hostRoomCode) + "/cmd", JSON.stringify(payload), { qos: 0 });
+      sentRemote = true;
+    } catch (e) {}
+  }
   if (clientConn && clientConn.open) {
-    try { clientConn.send(payload); } catch (e) {}
-  } else {
-    try { localStorage.setItem("SPECTRAL_PHONE_CMD", JSON.stringify(Object.assign({ ts:Date.now() }, payload))); } catch (e) {}
+    try { clientConn.send(payload); sentRemote = true; } catch (e) {}
+  }
+  if (!sentRemote) {
+    try { localStorage.setItem("SPECTRAL_PHONE_CMD", JSON.stringify(Object.assign({ ts: Date.now() }, payload))); } catch (e) {}
     handleRemotePhoneCommand(payload);
   }
 }
@@ -935,7 +941,7 @@ function startMission(carryoverPlayers) {
   };
 
   G.briefingHtml = generateMissionBriefingHtml();
-  logMsg("CONTRACT LIVE [" + G.archLabel + " — v9.8]: Unexplored doors opened by the Ghost stay hidden until you step inside! Phone Journal now includes full Ghost & Death Dossiers!", "clue");
+  logMsg("CONTRACT LIVE [" + G.archLabel + " — v9.8]: WSS Port 443 Cloud Relay active! Unexplored doors opened by the Ghost stay hidden until you step inside!", "clue");
   renderAll();
   if (!isMobileClient) showBriefingModal();
 }
@@ -2970,7 +2976,7 @@ function renderMobileController() {
 }
 
 /* ============================================================================
-   11. EVENT LISTENERS & GITHUB PAGES + TURN MOBILE P.D.A. HANDSHAKE
+   11. EVENT LISTENERS & DUAL-TRANSPORT MOBILE P.D.A. HANDSHAKE (WSS + PEERJS)
 ============================================================================ */
 document.addEventListener("click", function(e) {
   var mBtn = e.target.closest("[data-m-cmd]");
@@ -3162,10 +3168,12 @@ document.getElementById("tab-btn-forensics").addEventListener("click", function(
 function showActiveMobileScreen() {
   document.getElementById("m-join-screen").style.display = "none";
   document.getElementById("m-controller-screen").style.display = "flex";
-  setMobileTab("actions");
-  if (!G || !G.players || G.players.length === 0) {
-    startMission(null);
+  if (document.getElementById("m-tab-actions").style.display === "none" &&
+      document.getElementById("m-tab-journal").style.display === "none" &&
+      document.getElementById("m-tab-log").style.display === "none") {
+    setMobileTab("actions");
   }
+  if (!G || !G.players || G.players.length === 0) startMission(null);
   if (mobileCharIdx >= G.players.length) mobileCharIdx = 0;
   G.selectedChar = mobileCharIdx;
   renderMobileController();
@@ -3181,87 +3189,91 @@ function enableMobileMode(prefillCode) {
   }
 }
 
-function connectPhoneToHost(code) {
+function connectMobileMqtt(cleanCode, brokerIdx) {
+  if (!window.mqtt) return;
   var st = document.getElementById("m-conn-status");
-  var cleanCode = (code || "").trim().toUpperCase();
-
-  if (!cleanCode) {
-    if (st) st.textContent = "⚠️ Enter the 4-Letter Room Code shown on the TV (e.g. SP4829).";
-    return;
-  }
-
-  var saved = localStorage.getItem("SPECTRAL_LIVE_STATE");
-  if (cleanCode === "LOCAL" || !window.Peer) {
-    if (saved) { try { G = JSON.parse(saved); } catch (e) {} }
-    showActiveMobileScreen();
-    return;
-  }
-
-  if (st) st.textContent = "📡 Linking to Big Screen TV [" + cleanCode + "]...";
-  hasReceivedHostSync = false;
-  if (syncRetryInterval) { clearInterval(syncRetryInterval); syncRetryInterval = null; }
-
+  var url = MQTT_BROKERS[brokerIdx % MQTT_BROKERS.length];
   try {
-    if (clientPeer && !clientPeer.destroyed) clientPeer.destroy();
-    clientPeer = new Peer(PEER_CONFIG);
+    if (mqttClient) { try { mqttClient.end(true); } catch (e) {} }
+    mqttClient = mqtt.connect(url, { connectTimeout: 4500, reconnectPeriod: 2000 });
 
-    clientPeer.on("open", function(myId) {
-      console.log("📱 Phone Peer Open:", myId, "-> Connecting to spectral-host-" + cleanCode);
-      if (st) st.textContent = "🔄 Handshaking with Room [" + cleanCode + "]...";
+    mqttClient.on("connect", function() {
+      mqttConnected = true;
+      var stateTopic = getTopicBase(cleanCode) + "/state";
+      mqttClient.subscribe(stateTopic);
+      if (st) st.textContent = "✅ Linked to TV Room [" + cleanCode + "]!";
+      showActiveMobileScreen();
+      mqttClient.publish(getTopicBase(cleanCode) + "/cmd", JSON.stringify({
+        type: "REQUEST_SYNC",
+        phoneId: myPhoneId
+      }));
+    });
 
-      clientConn = clientPeer.connect("spectral-host-" + cleanCode, {
-        serialization: "json"
-      });
-
-      clientConn.on("open", function() {
-        console.log("✅ DataChannel Open with Host TV!");
-        if (st) st.textContent = "✅ Connected! Syncing HUD...";
-        // Immediately render UI so the phone NEVER shows an empty frame!
-        showActiveMobileScreen();
-
-        // Ping TV for live state immediately, and retry every 1.2s until first STATE_SYNC arrives
-        try { clientConn.send({ type: "REQUEST_SYNC" }); } catch (e) {}
-        syncRetryInterval = setInterval(function() {
-          if (hasReceivedHostSync || !clientConn || !clientConn.open) {
-            clearInterval(syncRetryInterval);
-            syncRetryInterval = null;
-            return;
-          }
-          try { clientConn.send({ type: "REQUEST_SYNC" }); } catch (e) {}
-        }, 1200);
-      });
-
-      clientConn.on("data", function(data) {
+    mqttClient.on("message", function(topic, message) {
+      try {
+        var data = JSON.parse(message.toString());
         if (data && data.type === "STATE_SYNC" && data.G) {
-          hasReceivedHostSync = true;
-          if (syncRetryInterval) { clearInterval(syncRetryInterval); syncRetryInterval = null; }
           G = data.G;
           if (mobileCharIdx >= G.players.length) mobileCharIdx = 0;
           G.selectedChar = mobileCharIdx;
           showActiveMobileScreen();
         }
-      });
-
-      clientConn.on("close", function() {
-        if (st) st.textContent = "⚠️ Disconnected from Big Screen TV.";
-      });
-
-      clientConn.on("error", function(err) {
-        console.error("Phone Conn Error:", err);
-        if (st) st.textContent = "❌ Link Error: " + err;
-      });
+      } catch (e) {}
     });
 
-    clientPeer.on("error", function(err) {
-      console.error("Phone Peer Error:", err.type, err);
-      if (err.type === "peer-unavailable") {
-        if (st) st.textContent = "❌ Room [" + cleanCode + "] not found! Make sure the PC/TV has the game open and shows code " + cleanCode + ".";
-      } else {
-        if (st) st.textContent = "❌ Network Error (" + err.type + "). Tap Connect again.";
+    mqttClient.on("error", function() {
+      if (!mqttConnected && brokerIdx < MQTT_BROKERS.length - 1) {
+        try { mqttClient.end(true); } catch (e) {}
+        connectMobileMqtt(cleanCode, brokerIdx + 1);
       }
     });
-  } catch (e) {
-    if (st) st.textContent = "❌ Exception: " + e.message;
+  } catch (e) {}
+}
+
+function connectPhoneToHost(code) {
+  var st = document.getElementById("m-conn-status");
+  var cleanCode = (code || "").trim().toUpperCase();
+  if (!cleanCode) {
+    if (st) st.textContent = "⚠️ Enter the 4-Letter Room Code shown on the TV.";
+    return;
+  }
+  hostRoomCode = cleanCode;
+
+  if (cleanCode === "LOCAL") {
+    var saved = localStorage.getItem("SPECTRAL_LIVE_STATE");
+    if (saved) { try { G = JSON.parse(saved); } catch (e) {} }
+    showActiveMobileScreen();
+    return;
+  }
+
+  if (st) st.textContent = "🛰️ Linking to TV Room [" + cleanCode + "] over WSS Port 443...";
+
+  // 1. Primary Transport: Secure WebSocket Relay (Bypasses Wi-Fi AP Isolation / Firewall / 5G!)
+  if (window.mqtt) {
+    connectMobileMqtt(cleanCode, 0);
+  }
+
+  // 2. Secondary Transport: PeerJS WebRTC
+  if (window.Peer) {
+    try {
+      if (clientPeer && !clientPeer.destroyed) clientPeer.destroy();
+      clientPeer = new Peer();
+      clientPeer.on("open", function() {
+        clientConn = clientPeer.connect("spectral-host-" + cleanCode);
+        clientConn.on("open", function() {
+          showActiveMobileScreen();
+          clientConn.send({ type: "REQUEST_SYNC", phoneId: myPhoneId });
+        });
+        clientConn.on("data", function(data) {
+          if (data && data.type === "STATE_SYNC" && data.G) {
+            G = data.G;
+            if (mobileCharIdx >= G.players.length) mobileCharIdx = 0;
+            G.selectedChar = mobileCharIdx;
+            showActiveMobileScreen();
+          }
+        });
+      });
+    } catch (e) {}
   }
 }
 
@@ -3377,7 +3389,7 @@ function connectPhoneToHost(code) {
   });
 })();
 
-// Boot Game (Auto-Initializes Host Peer on PC so Room Code is live immediately)
+// Boot Game (Auto-Initializes Host WSS Relay on PC so Room Code is live immediately)
 var urlParams = new URLSearchParams(window.location.search);
 var roomParam = urlParams.get("room");
 var mobileParam = urlParams.get("mobile");

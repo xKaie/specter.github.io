@@ -3,9 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>SPECTRAL_PROTOCOL v9.7 // TV Host + Mobile P.D.A.</title>
+  <title>SPECTRAL_PROTOCOL v9.8 // TV Host + Mobile P.D.A.</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <script src="https://unpkg.com/mqtt@5.3.4/dist/mqtt.min.js"></script>
 </head>
 <body>
 
@@ -14,7 +15,7 @@
 <!-- ==========================================================================
      MOBILE PHONE P.D.A. INTERFACE
 =========================================================================== -->
-<div id="mobile-app">
+<div id="mobile-app" style="height:100dvh;">
   <!-- JOIN SCREEN -->
   <div id="m-join-screen" class="m-join-box">
     <h2 style="color:var(--cyan); font-size:18px; text-align:center;">📱 SPECTRAL P.D.A. CONTROLLER</h2>
@@ -26,7 +27,7 @@
   </div>
 
   <!-- ACTIVE P.D.A. CONTROLLER -->
-  <div id="m-controller-screen" style="display:none; flex-direction:column; height:100vh; overflow:hidden;">
+  <div id="m-controller-screen" style="display:none; flex-direction:column; height:100dvh; width:100vw; overflow:hidden;">
     <div class="m-topbar">
       <div class="m-char-bar" id="m-char-bar"></div>
       <div class="m-stats-row">
@@ -48,7 +49,7 @@
     <div class="m-body" id="m-tab-journal" style="display:none;"></div>
     <div class="m-body" id="m-tab-log" style="display:none;"></div>
 
-    <div class="m-bottom-nav">
+    <div class="m-bottom-nav" style="flex-shrink:0;">
       <button type="button" class="tab-btn active" id="m-nav-actions">🗺️ RADAR & GEAR</button>
       <button type="button" class="tab-btn" id="m-nav-journal">📖 JOURNAL</button>
       <button type="button" class="tab-btn" id="m-nav-log">📡 AUDIO LOG</button>
@@ -65,7 +66,7 @@
   <div class="modal-overlay" id="lobby-modal">
     <div class="modal-box" style="width:920px;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; gap:6px; flex-wrap:wrap;">
-        <h2 style="color:var(--cyan); font-size:16px;">SPECTRAL_PROTOCOL v9.7 // PROGRESSION, LOADOUT & TIERS</h2>
+        <h2 style="color:var(--cyan); font-size:16px;">SPECTRAL_PROTOCOL v9.8 // PROGRESSION, LOADOUT & TIERS</h2>
         <div style="display:flex; gap:6px; align-items:center;">
           <span id="lobby-cash-badge" class="hud-pill" style="border-color:var(--green); color:var(--green); font-size:12px;">💵 $0</span>
           <button type="button" class="btn-amber" id="btn-reset-meta" title="Reset Cash, Unlocks & Tiers">🔄 Reset Save</button>
@@ -104,7 +105,7 @@
   <!-- PHONE CONNECTION QR MODAL -->
   <div class="modal-overlay" id="phone-modal" style="display:none;">
     <div class="modal-box" style="width:580px; text-align:center;">
-      <h2 style="color:var(--cyan); font-size:17px; margin-bottom:6px;">📱 CONNECT PHONES (WEBRTC ROOM CODE)</h2>
+      <h2 style="color:var(--cyan); font-size:17px; margin-bottom:6px;">📱 CONNECT PHONES (WSS CLOUD RELAY + WEBRTC)</h2>
       <p style="color:var(--dim); font-size:11.5px; margin-bottom:10px;">Scan the QR code below with your phone camera or open this page on your phone and enter the Room Code:</p>
       <div id="host-room-code-display" class="room-code-banner">CONNECTING...</div>
       <div id="qr-container" class="qr-box"></div>
@@ -153,7 +154,7 @@
 
   <header>
     <div class="brand">
-      <h1>SPECTRAL_PROTOCOL v9.7</h1>
+      <h1>SPECTRAL_PROTOCOL v9.8</h1>
       <span id="campaign-badge" style="color:var(--green); font-weight:700; font-size:11px;">💵 $0</span>
     </div>
     <div class="hud-stats">
