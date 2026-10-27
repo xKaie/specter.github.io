@@ -411,12 +411,12 @@ function generateMultiFloorHouse(sizeKey, numBackDoors) {
 }
 
 /* ============================================================================
-   4. LOBBY, INITIALIZATION & MULTIPLAYER PEERJS ENGINE (GITHUB PAGES HARDENED)
+   4. LOBBY, INITIALIZATION & MULTIPLAYER PEERJS ENGINE (GITHUB PAGES READY)
 ============================================================================ */
 let hostPeer = null, hostRoomCode = "", hostConnections = [];
 let clientPeer = null, clientConn = null, isMobileClient = false, mobileCharIdx = 0;
 
-// Hardened config explicitly pointing to public PeerJS cloud & Google STUN endpoints
+// Hardened config for public cloud hosting (GitHub Pages) + STUN fallback
 const PEER_CONFIG = {
   host: "0.peerjs.com",
   port: 443,
@@ -439,7 +439,7 @@ function initHostPeer() {
     hostPeer = new Peer("spectral-host-" + hostRoomCode, PEER_CONFIG);
     
     hostPeer.on("open", function(id) {
-      console.log("🎮 Big Screen Host TV Live on PeerJS Cloud. Room ID:", id);
+      console.log("🎮 Host TV Live on PeerJS Cloud. Room ID:", id);
       var codeEl = document.getElementById("host-room-code-display");
       if (codeEl) codeEl.textContent = hostRoomCode;
       updateQRDisplay();
@@ -491,78 +491,91 @@ function initHostPeer() {
   }
 }
 
-function connectPhoneToHost(code) {
-  var st = document.getElementById("m-conn-status");
-  var cleanCode = (code || "").trim().toUpperCase();
+function updatePhoneCountUI() {
+  var el = document.getElementById("connected-phones-count");
+  if (el) el.textContent = hostConnections.length + " Phone(s) Connected";
+}
 
-  if (!cleanCode) {
-    if (st) st.textContent = "⚠️ Please enter the 4-digit Room Code shown on the TV.";
-    return;
+function updateQRDisplay() {
+  var qrBox = document.getElementById("qr-container");
+  if (!qrBox) return;
+  var code = hostRoomCode || "LOCAL";
+  var joinUrl = window.location.href.split("?")[0] + "?room=" + code;
+  qrBox.innerHTML = '<img src="https://api.qrserver.com/v1/create-qr-code/?size=170x170&data=' + encodeURIComponent(joinUrl) + '" alt="QR Code" style="display:block;"/>';
+}
+
+function broadcastStateToPhones() {
+  if (isMobileClient) return;
+  hostConnections.forEach(function(conn) {
+    if (conn && conn.open) {
+      try { conn.send({ type: "STATE_SYNC", G: G }); } catch (e) {}
+    }
+  });
+  try { localStorage.setItem("SPECTRAL_LIVE_STATE", JSON.stringify(G)); } catch (e) {}
+}
+
+function cycleTriState(obj, key) {
+  var v = obj[key];
+  var cur = (v === true || v === 1) ? 1 : (v === -1 ? -1 : 0);
+  obj[key] = (cur === 0) ? 1 : (cur === 1 ? -1 : 0);
+}
+
+function getTriStateVal(obj, key) {
+  var v = obj[key];
+  if (v === true || v === 1) return 1;
+  if (v === -1) return -1;
+  return 0;
+}
+
+function handleRemotePhoneCommand(cmd) {
+  if (!G.players || G.gameOver || G.isAnimatingHunt) return;
+  if (typeof cmd.charIdx === "number" && cmd.charIdx >= 0 && cmd.charIdx < G.players.length) {
+    G.selectedChar = cmd.charIdx;
+    G.currentFloorView = getRoom(G.players[G.selectedChar].roomId).floor;
   }
+  var act = cmd.action;
+  if (act === "select-char") { renderAll(); return; }
+  else if (act === "move-room") clickRoomTile(cmd.room);
+  else if (act === "open-door") openDoorWithoutMoving(cmd.room);
+  else if (act === "use-stairs") traverseStairsTo(cmd.target);
+  else if (act === "search-room") searchCurrentRoom();
+  else if (act === "verify-relic") verifyHeirloomResonance();
+  else if (act === "disturb-corpse") disturbCorpseAction();
+  else if (act === "close-door") toggleCloseDoor();
+  else if (act === "enter-hide") enterHidingSpot();
+  else if (act === "hold-breath") holdBreathAction();
+  else if (act === "leave-hide") leaveHidingAction();
+  else if (act === "scan-sanity") scanBiometricsAction();
+  else if (act === "use-hand") useHandItem(cmd.slot);
+  else if (act === "toggle-power") togglePowerAction(cmd.slot);
+  else if (act === "drop-item") dropItemAction(cmd.slot);
+  else if (act === "pick-floor") pickFloorAction(cmd.idx);
+  else if (act === "use-belt") useBeltAction();
+  else if (act === "flip-light") flipRoomLight();
+  else if (act === "flip-breaker") flipBreakerAction();
+  else if (act === "upgrade-breaker") upgradeBreakerAction();
+  else if (act === "wipe-ward") wipeWardAction();
+  else if (act === "kill-env-elec") shutOffRoomElectronics();
+  else if (act === "photo-water") snapDirtyWaterPhoto();
+  else if (act === "gaze-mirror") gazeIntoMirrorAction();
+  else if (act === "ritual-chant") executeExorcismAct();
+  else if (act === "begin-ritual") triggerBanishmentHunt();
+  else if (act === "spirit-sense") spiritSenseAction();
+  else if (act === "toggle-ev") { cycleTriState(G.foundEv, cmd.ev); renderAll(); }
+  else if (act === "toggle-forensic") { cycleTriState(G.foundForensics, cmd.ft); renderAll(); }
+  else if (act === "inspect-ghost") { G.inspectedGhost = cmd.ghost; if (!G.banishmentMode) G.lockedGhost = cmd.ghost; renderAll(); }
+  else if (act === "inspect-death") { G.inspectedDeath = cmd.death; if (!G.banishmentMode) G.lockedDeath = cmd.death; renderAll(); }
+  else if (act === "undo") performUndoForChar(G.selectedChar);
+  else if (act === "toggle-end-turn") togglePlayerEndTurnReady(G.selectedChar);
+}
 
-  var saved = localStorage.getItem("SPECTRAL_LIVE_STATE");
-  if (cleanCode === "LOCAL" || !window.Peer) {
-    if (saved) { try { G = JSON.parse(saved); } catch (e) {} }
-    showActiveMobileScreen();
-    return;
-  }
-
-  if (st) st.textContent = "📡 Connecting via PeerJS Cloud to Room [" + cleanCode + "]...";
-  
-  try {
-    if (clientPeer && !clientPeer.destroyed) clientPeer.destroy();
-    clientPeer = new Peer(PEER_CONFIG);
-
-    var fallbackTimer = setTimeout(function() {
-      if (!clientConn || !clientConn.open) {
-        if (st) st.textContent = "⚠️ Network traversal slow—opening P.D.A. in Local fallback mode...";
-        if (saved) { try { G = JSON.parse(saved); } catch (e) {} }
-        showActiveMobileScreen();
-      }
-    }, 8000);
-
-    clientPeer.on("open", function() {
-      console.log("📱 Phone client peer open, connecting to target host...");
-      clientConn = clientPeer.connect("spectral-host-" + cleanCode, { reliable: true });
-
-      clientConn.on("open", function() {
-        clearTimeout(fallbackTimer);
-        if (st) st.textContent = "✅ Linked to Big Screen!";
-        showActiveMobileScreen();
-        // Request immediate state sync from the TV host
-        clientConn.send({ type: "REQUEST_SYNC" });
-      });
-
-      clientConn.on("data", function(data) {
-        if (data && data.type === "STATE_SYNC" && data.G) {
-          G = data.G;
-          if (mobileCharIdx >= G.players.length) mobileCharIdx = 0;
-          G.selectedChar = mobileCharIdx;
-          if (document.getElementById("m-controller-screen").style.display === "none") {
-            showActiveMobileScreen();
-          } else {
-            renderMobileController();
-          }
-        }
-      });
-
-      clientConn.on("close", function() {
-        if (st) st.textContent = "⚠️ Disconnected from Big Screen TV.";
-      });
-
-      clientConn.on("error", function(err) {
-        console.error("Client conn error:", err);
-        if (st) st.textContent = "❌ Connection error: " + err;
-      });
-    });
-
-    clientPeer.on("error", function(err) {
-      clearTimeout(fallbackTimer);
-      console.error("Phone client peer error:", err.type, err);
-      if (st) st.textContent = "❌ Could not reach Room [" + cleanCode + "] (" + err.type + "). Check code!";
-    });
-  } catch (e) {
-    if (st) st.textContent = "❌ Connection exception: " + e.message;
+function sendPhoneCmd(payload) {
+  payload.charIdx = isMobileClient ? mobileCharIdx : (G.selectedChar || 0);
+  if (clientConn && clientConn.open) {
+    clientConn.send(payload);
+  } else {
+    try { localStorage.setItem("SPECTRAL_PHONE_CMD", JSON.stringify(Object.assign({ ts:Date.now() }, payload))); } catch (e) {}
+    handleRemotePhoneCommand(payload);
   }
 }
 
@@ -3116,8 +3129,9 @@ function showActiveMobileScreen() {
 function connectPhoneToHost(code) {
   var st = document.getElementById("m-conn-status");
   var cleanCode = (code || "").trim().toUpperCase();
+
   if (!cleanCode) {
-    if (st) st.textContent = "⚠️ Enter the 4-digit Room Code shown on the TV.";
+    if (st) st.textContent = "⚠️ Please enter the 4-digit Room Code shown on the TV.";
     return;
   }
 
@@ -3128,27 +3142,29 @@ function connectPhoneToHost(code) {
     return;
   }
 
-  if (st) st.textContent = "📡 Connecting to Big Screen [" + cleanCode + "]...";
+  if (st) st.textContent = "📡 Connecting via PeerJS Cloud to Room [" + cleanCode + "]...";
+  
   try {
     if (clientPeer && !clientPeer.destroyed) clientPeer.destroy();
     clientPeer = new Peer(PEER_CONFIG);
 
     var fallbackTimer = setTimeout(function() {
       if (!clientConn || !clientConn.open) {
-        if (st) st.textContent = "⚠️ Signaling slow—opening P.D.A. in Local/Offline mode...";
+        if (st) st.textContent = "⚠️ Network traversal slow—opening P.D.A. in Local fallback mode...";
         if (saved) { try { G = JSON.parse(saved); } catch (e) {} }
         showActiveMobileScreen();
       }
-    }, 6000);
+    }, 8000);
 
     clientPeer.on("open", function() {
+      console.log("📱 Phone client peer open, connecting to target host...");
       clientConn = clientPeer.connect("spectral-host-" + cleanCode, { reliable: true });
 
       clientConn.on("open", function() {
         clearTimeout(fallbackTimer);
         if (st) st.textContent = "✅ Linked to Big Screen!";
         showActiveMobileScreen();
-        // Immediately request fresh state from Host TV so all 3 tabs populate!
+        // Request immediate state sync from the TV host
         clientConn.send({ type: "REQUEST_SYNC" });
       });
 
@@ -3166,16 +3182,22 @@ function connectPhoneToHost(code) {
       });
 
       clientConn.on("close", function() {
-        if (st) st.textContent = "⚠️ Connection to TV closed.";
+        if (st) st.textContent = "⚠️ Disconnected from Big Screen TV.";
+      });
+
+      clientConn.on("error", function(err) {
+        console.error("Client conn error:", err);
+        if (st) st.textContent = "❌ Connection error: " + err;
       });
     });
 
     clientPeer.on("error", function(err) {
       clearTimeout(fallbackTimer);
-      if (st) st.textContent = "❌ Peer Error (" + err.type + "). Check Room Code!";
+      console.error("Phone client peer error:", err.type, err);
+      if (st) st.textContent = "❌ Could not reach Room [" + cleanCode + "] (" + err.type + "). Check code!";
     });
   } catch (e) {
-    showActiveMobileScreen();
+    if (st) st.textContent = "❌ Connection exception: " + e.message;
   }
 }
 
