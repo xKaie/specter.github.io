@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>SPECTRAL_PROTOCOL v9.7 // TV Host + Mobile P.D.A.</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+</head>
+<body>
+
+<div id="dice-toast"></div>
+
+<!-- ==========================================================================
+     MOBILE PHONE P.D.A. INTERFACE
+=========================================================================== -->
+<div id="mobile-app">
+  <!-- JOIN SCREEN -->
+  <div id="m-join-screen" class="m-join-box">
+    <h2 style="color:var(--cyan); font-size:18px; text-align:center;">📱 SPECTRAL P.D.A. CONTROLLER</h2>
+    <p style="color:var(--dim); font-size:12px; text-align:center;">Enter the 4-Letter Room Code shown on the Big Screen TV/PC to link your phone:</p>
+    <input type="text" id="m-room-input" placeholder="ROOM CODE (e.g. SP4829)">
+    <button type="button" class="btn-cyan" id="btn-m-connect" style="padding:12px; font-size:14px;">CONNECT TO BIG SCREEN &raquo;</button>
+    <div id="m-conn-status" style="text-align:center; color:var(--amber); font-size:12px;"></div>
+    <button type="button" id="btn-m-back-pc" style="margin-top:20px; opacity:0.7;">Switch to Big Screen PC Mode</button>
+  </div>
+
+  <!-- ACTIVE P.D.A. CONTROLLER -->
+  <div id="m-controller-screen" style="display:none; flex-direction:column; height:100vh; overflow:hidden;">
+    <div class="m-topbar">
+      <div class="m-char-bar" id="m-char-bar"></div>
+      <div class="m-stats-row">
+        <span id="m-loc-label" style="color:var(--cyan);">📍 The Van (1F)</span>
+        <span id="m-timer-badge" style="color:var(--red); display:none;">⏱️ 12s</span>
+        <span id="m-san-label" style="color:var(--green);">Sanity: 100%</span>
+      </div>
+      <div class="m-pips-box">
+        <div><span style="color:var(--green); font-weight:800; font-size:11px;">WALK MP:</span> <span id="m-mp-pips"></span></div>
+        <div><span style="color:var(--cyan); font-weight:800; font-size:11px;">ACTION AP:</span> <span id="m-ap-pips"></span></div>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1.5fr; gap:6px;">
+        <button type="button" class="btn-amber" id="btn-m-undo" style="padding:8px; font-size:12px;">↩️ Undo Action</button>
+        <button type="button" class="btn-green" id="btn-m-end-turn" style="padding:8px; font-size:12px;">✓ END TURN</button>
+      </div>
+    </div>
+
+    <div class="m-body" id="m-tab-actions"></div>
+    <div class="m-body" id="m-tab-journal" style="display:none;"></div>
+    <div class="m-body" id="m-tab-log" style="display:none;"></div>
+
+    <div class="m-bottom-nav">
+      <button type="button" class="tab-btn active" id="m-nav-actions">🗺️ RADAR & GEAR</button>
+      <button type="button" class="tab-btn" id="m-nav-journal">📖 JOURNAL</button>
+      <button type="button" class="tab-btn" id="m-nav-log">📡 AUDIO LOG</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==========================================================================
+     BIG SCREEN HOST (TV / PC) INTERFACE
+=========================================================================== -->
+<div id="host-app" style="display:flex; flex-direction:column; height:100vh; overflow:hidden;">
+
+  <!-- LOBBY & SHOP MODAL -->
+  <div class="modal-overlay" id="lobby-modal">
+    <div class="modal-box" style="width:920px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; gap:6px; flex-wrap:wrap;">
+        <h2 style="color:var(--cyan); font-size:16px;">SPECTRAL_PROTOCOL v9.7 // PROGRESSION, LOADOUT & TIERS</h2>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <span id="lobby-cash-badge" class="hud-pill" style="border-color:var(--green); color:var(--green); font-size:12px;">💵 $0</span>
+          <button type="button" class="btn-amber" id="btn-reset-meta" title="Reset Cash, Unlocks & Tiers">🔄 Reset Save</button>
+          <button type="button" class="btn-purple" id="btn-switch-to-mobile-mode">📱 Phone Mode</button>
+        </div>
+      </div>
+      <p style="color:var(--dim); font-size:10.5px; margin-bottom:6px;">Complete challenges to permanently unlock &amp; promote Specialists (T1&rarr;T3 signature gear). Upgrade Van Equipment with 💵 Cash (⚠️ T2/T3 Van gear lost if squad wipes!).</p>
+
+      <div style="font-weight:700; font-size:11px; color:var(--purple);">1. SELECT GAME MODE:</div>
+      <div class="mode-row" id="lobby-mode-row"></div>
+
+      <div style="font-weight:700; font-size:11px; color:var(--amber);">2. SELECT DIFFICULTY:</div>
+      <div class="diff-row" id="lobby-diff-row"></div>
+
+      <div id="lobby-size-section">
+        <div style="font-weight:700; font-size:11px; color:var(--cyan);">3. SELECT HOUSE SIZE (INTERIOR ROOMS + FREE YARDS/VAN):</div>
+        <div class="size-row" id="lobby-size-row"></div>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
+        <div style="font-weight:700; font-size:11px; color:var(--green);">4. ASSEMBLE SQUAD (INTERNS + UNLOCKED SPECIALISTS):</div>
+        <div id="lobby-intern-controls" style="display:flex; align-items:center; gap:6px;"></div>
+      </div>
+      <div class="lobby-grid" id="lobby-char-grid"></div>
+
+      <div style="font-weight:700; font-size:11px; color:var(--amber); margin-top:8px;">5. VAN EQUIPMENT TIER SHOP &amp; SANITY PILLS (⚠️ T2/T3 VAN UPGRADES LOST ON DEFEAT):</div>
+      <div class="van-shop-grid" id="lobby-van-shop"></div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; border-top:1px solid var(--border); padding-top:10px;">
+        <span id="lobby-count-label" style="color:var(--green); font-weight:700;">4 / 4 Investigators Selected</span>
+        <button type="button" class="btn-cyan" id="btn-launch-contract" style="padding:7px 16px; font-size:12.5px;">LAUNCH MISSION &raquo;</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PHONE CONNECTION QR MODAL -->
+  <div class="modal-overlay" id="phone-modal" style="display:none;">
+    <div class="modal-box" style="width:580px; text-align:center;">
+      <h2 style="color:var(--cyan); font-size:17px; margin-bottom:6px;">📱 CONNECT PHONES (WEBRTC ROOM CODE)</h2>
+      <p style="color:var(--dim); font-size:11.5px; margin-bottom:10px;">Scan the QR code below with your phone camera or open this page on your phone and enter the Room Code:</p>
+      <div id="host-room-code-display" class="room-code-banner">CONNECTING...</div>
+      <div id="qr-container" class="qr-box"></div>
+      <div id="connected-phones-count" style="color:var(--amber); font-weight:700; margin-bottom:12px;">0 Phones Connected</div>
+      <div style="display:flex; justify-content:center; gap:8px;">
+        <button type="button" class="btn-purple" id="btn-open-sim-phone">📱 Test Phone Controller in New Tab</button>
+        <button type="button" class="btn-cyan" id="btn-close-phone-modal">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CAMPAIGN SURVIVOR UPGRADE SHOP MODAL -->
+  <div class="modal-overlay" id="upgrade-modal" style="display:none;">
+    <div class="modal-box" style="width:720px; border-color:var(--green);">
+      <h2 style="color:var(--green); font-size:16px; margin-bottom:4px;">⭐ CAMPAIGN SURVIVOR UPGRADE SHOP</h2>
+      <p style="color:var(--dim); font-size:11.5px; margin-bottom:10px;">Surviving Specialists earned <strong>1 Upgrade Token (⭐)</strong>! Spend tokens below before the next contract.</p>
+      <div id="upgrade-list-container" style="display:flex; flex-direction:column; gap:8px; margin-bottom:14px;"></div>
+      <div style="display:flex; justify-content:flex-end;">
+        <button type="button" class="btn-cyan" id="btn-proceed-next-mission" style="padding:7px 16px; font-size:12px;">PROCEED TO NEXT MISSION &raquo;</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PRE-MISSION BRIEFING MODAL -->
+  <div class="modal-overlay" id="briefing-modal" style="display:none;">
+    <div class="modal-box" style="width:640px; border-color:var(--amber);">
+      <h2 id="briefing-title" style="color:var(--amber); font-size:16px; margin-bottom:6px;">PRE-MISSION CASE DOSSIER</h2>
+      <div id="briefing-body" style="font-size:12px; line-height:1.5; color:var(--text); margin-bottom:14px;"></div>
+      <div style="display:flex; justify-content:flex-end; gap:8px;">
+        <button type="button" class="btn-cyan" id="btn-close-briefing" style="padding:7px 16px; font-size:12px;">ENTER THE FIELD &raquo;</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- POST-MORTEM DEFEAT / REVEAL MODAL -->
+  <div class="modal-overlay" id="gameover-modal" style="display:none;">
+    <div class="modal-box" style="width:600px; border-color:var(--red);">
+      <h2 id="gameover-title" style="color:var(--red); font-size:17px; margin-bottom:6px;">CONTRACT POST-MORTEM REPORT</h2>
+      <div id="gameover-body" style="font-size:12px; line-height:1.55; color:var(--text); margin-bottom:14px;"></div>
+      <div style="display:flex; justify-content:flex-end; gap:8px;">
+        <button type="button" id="btn-close-gameover">Close Report</button>
+        <button type="button" class="btn-cyan" id="btn-restart-from-gameover">New Contract / Setup &raquo;</button>
+      </div>
+    </div>
+  </div>
+
+  <header>
+    <div class="brand">
+      <h1>SPECTRAL_PROTOCOL v9.7</h1>
+      <span id="campaign-badge" style="color:var(--green); font-weight:700; font-size:11px;">💵 $0</span>
+    </div>
+    <div class="hud-stats">
+      <button type="button" class="btn-purple" id="btn-open-phone-modal">📱 Connect Phones</button>
+      <div class="hud-pill" id="hud-diff">NORMAL</div>
+      <div class="hud-pill" id="hud-round">ROUND 1</div>
+      <div class="hud-pill" id="hud-sanity">SANITY: 100%</div>
+      <div class="hud-pill" id="hud-breaker">BREAKER: ON</div>
+      <div class="hud-pill" id="hud-key">KEY: ❌</div>
+      <div class="hud-pill" id="hud-phase">INVESTIGATION</div>
+      <div class="hud-pill timer-pill" id="hud-hunt-timer" style="display:none;">⏱️ 12s</div>
+      <button type="button" class="btn-amber" id="btn-undo" disabled>↩️ Undo</button>
+      <button type="button" id="btn-audio-toggle">🔊 Audio: ON</button>
+      <button type="button" class="btn-green" id="btn-end-round">✓ END TURN &raquo;</button>
+      <button type="button" id="btn-give-up">🏳️ Reveal</button>
+      <button type="button" class="btn-purple" id="btn-toggle-dev">🛠️ Dev</button>
+      <button type="button" id="btn-new-contract">Setup</button>
+    </div>
+  </header>
+
+  <div class="workspace">
+    <div class="panel">
+      <div class="panel-header">
+        <span>Squad (Simultaneous Co-Op)</span>
+        <span id="deck-count-label" style="color:var(--cyan);">Unexplored</span>
+      </div>
+      <div class="squad-list" id="squad-list"></div>
+      <div class="side-obj-box" id="side-obj-box"></div>
+    </div>
+
+    <div class="center-col">
+      <div class="map-header-bar">
+        <div class="floor-tabs" id="floor-tabs-container"></div>
+        <span style="font-size:10px; color:var(--dim);">Search = <strong>1 MP or 1 AP</strong> &bull; Hunts = <strong>2 AP</strong> &bull; Dropped items &amp; 🔍✓ show on tiles!</span>
+      </div>
+      <div class="map-viewport">
+        <div class="board-grid" id="board-grid"></div>
+      </div>
+      <div class="bottom-dock">
+        <div class="hand-area" id="hand-area"></div>
+        <div class="room-context-area" id="room-context-area"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="tab-bar">
+        <button type="button" class="tab-btn active" id="tab-btn-log">1. AUDIO LOG</button>
+        <button type="button" class="tab-btn" id="tab-btn-brief">2. BRIEFING</button>
+        <button type="button" class="tab-btn" id="tab-btn-journal">3. GHOSTS (19)</button>
+        <button type="button" class="tab-btn" id="tab-btn-forensics">4. EXORCISM</button>
+      </div>
+      <div class="tab-content" id="tab-log"><div class="log-feed" id="log-feed"></div></div>
+      <div class="tab-content" id="tab-brief" style="display:none;"><div id="tab-brief-content" style="font-size:11px; line-height:1.45;"></div></div>
+      <div class="tab-content" id="tab-journal" style="display:none;">
+        <div style="font-size:10px; color:var(--dim); margin-bottom:4px;">Paranormal Clues (Tap to cycle: ☐ &rarr; ☑ Confirmed &rarr; ❌ Ruled Out):</div>
+        <div class="ev-grid" id="ev-grid"></div>
+        <div style="font-size:10px; color:var(--dim); margin-bottom:4px;">Select Ghost Suspect (Act I Target):</div>
+        <div class="suspect-list" id="suspect-list"></div>
+        <div class="dossier-box" id="ghost-dossier"></div>
+      </div>
+      <div class="tab-content" id="tab-forensics" style="display:none;">
+        <div style="font-size:10px; color:var(--dim); margin-bottom:4px;">Forensic Traces (Tap to cycle: ☐ &rarr; ☑ Confirmed &rarr; ❌ Ruled Out):</div>
+        <div class="ev-grid" id="forensic-ev-grid"></div>
+        <div style="font-size:10px; color:var(--dim); margin-bottom:4px;">Select Cause of Death (Act II Target):</div>
+        <div class="suspect-list" id="death-suspect-list"></div>
+        <div class="dossier-box" id="death-dossier" style="border-left-color:var(--amber);"></div>
+        <div style="border-top:1px solid var(--border); padding-top:6px; margin-top:4px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+            <span style="font-weight:700; color:var(--purple); font-size:10.5px;">3-ACT EXORCISM RITUAL</span>
+            <button type="button" class="btn-purple" id="btn-begin-ritual">Start 3-Act Exorcism</button>
+          </div>
+          <div id="exorcism-acts-container"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
