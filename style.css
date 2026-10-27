@@ -267,7 +267,24 @@ header {
 .qr-box { background: #fff; padding: 10px; display: inline-block; border-radius: 8px; margin-bottom: 10px; }
 
 /* MOBILE PHONE P.D.A. CONTROLLER STYLES & 3x3 LOCAL MAP */
-#mobile-app { display: none; flex-direction: column; height: 100vh; width: 100vw; background: #05070c; overflow: hidden; }
+#mobile-app { display: none; flex-direction: column; height: 100dvh; width: 100vw; background: #05070c; overflow: hidden; }
+#m-controller-screen {
+  display: none;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+.m-bottom-nav {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  background: #04060a;
+  border-top: 2px solid var(--border);
+  height: 52px;
+  flex-shrink: 0;
+  z-index: 50;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
 .m-join-box { padding: 20px; display: flex; flex-direction: column; gap: 12px; max-width: 420px; margin: auto; width: 100%; }
 #m-room-input { padding: 12px; font-size: 16px; text-align: center; text-transform: uppercase; background: #0f1420; color: #fff; border: 2px solid var(--cyan); border-radius: 6px; font-weight: 800; }
 .m-topbar { background: #0c111b; border-bottom: 2px solid var(--border); padding: 8px 10px; flex-shrink: 0; }

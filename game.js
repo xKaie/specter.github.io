@@ -413,8 +413,21 @@ function generateMultiFloorHouse(sizeKey, numBackDoors) {
 /* ============================================================================
    4. LOBBY, INITIALIZATION & MULTIPLAYER PEERJS ENGINE (HOTFIXED)
 ============================================================================ */
+/* ============================================================================
+   4. LOBBY, INITIALIZATION & MULTIPLAYER PEERJS ENGINE (v9.8 SYNC FIXED)
+============================================================================ */
 let hostPeer = null, hostRoomCode = "", hostConnections = [];
-let clientPeer = null, clientConn = null, isMobileClient = false;
+let clientPeer = null, clientConn = null, isMobileClient = false, mobileCharIdx = 0;
+
+const PEER_CONFIG = {
+  debug: 1,
+  config: {
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" }
+    ]
+  }
+};
 
 function initHostPeer() {
   if (hostPeer && !hostPeer.destroyed) return;
@@ -422,41 +435,51 @@ function initHostPeer() {
     hostRoomCode = "SP" + Math.floor(1000 + Math.random() * 9000);
   }
   try {
-    hostPeer = new Peer("spectral-host-" + hostRoomCode, { debug: 1 });
+    hostPeer = new Peer("spectral-host-" + hostRoomCode, PEER_CONFIG);
     hostPeer.on("open", function(id) {
-      console.log("🎮 Big Screen TV Peer Live:", id);
       var codeEl = document.getElementById("host-room-code-display");
       if (codeEl) codeEl.textContent = hostRoomCode;
       updateQRDisplay();
     });
     hostPeer.on("connection", function(conn) {
-      hostConnections.push(conn);
+      if (hostConnections.indexOf(conn) === -1) hostConnections.push(conn);
       updatePhoneCountUI();
-      showDiceToast("📱 PHONE CONTROLLER CONNECTED!", "var(--green)");
-      conn.on("open", function() {
-        conn.send({ type:"STATE_SYNC", G:G });
-      });
+      showDiceToast("📱 PHONE P.D.A. CONNECTED!", "var(--green)");
+
+      function sendInitialSync() {
+        if (conn && conn.open) {
+          conn.send({ type: "STATE_SYNC", G: G });
+        }
+      }
+      if (conn.open) sendInitialSync();
+      conn.on("open", sendInitialSync);
+
       conn.on("data", function(data) {
+        if (!data) return;
+        if (data.type === "REQUEST_SYNC") {
+          sendInitialSync();
+          return;
+        }
         handleRemotePhoneCommand(data);
       });
+
       conn.on("close", function() {
         hostConnections = hostConnections.filter(function(c) { return c !== conn; });
         updatePhoneCountUI();
       });
-      conn.on("error", function(err) {
-        console.warn("Host conn error:", err);
+      conn.on("error", function() {
+        hostConnections = hostConnections.filter(function(c) { return c !== conn; });
+        updatePhoneCountUI();
       });
     });
     hostPeer.on("error", function(err) {
-      console.warn("PeerJS Host Error:", err.type, err);
-      if (err.type === "unavailable-id") {
+      if (err && err.type === "unavailable-id") {
+        hostPeer = null;
         hostRoomCode = "SP" + Math.floor(1000 + Math.random() * 9000);
         setTimeout(initHostPeer, 400);
       }
     });
-  } catch (e) {
-    console.warn("PeerJS init error:", e);
-  }
+  } catch (e) {}
 }
 
 function updatePhoneCountUI() {
@@ -475,7 +498,9 @@ function updateQRDisplay() {
 function broadcastStateToPhones() {
   if (isMobileClient) return;
   hostConnections.forEach(function(conn) {
-    if (conn && conn.open) conn.send({ type:"STATE_SYNC", G:G });
+    if (conn && conn.open) {
+      try { conn.send({ type: "STATE_SYNC", G: G }); } catch (e) {}
+    }
   });
   try { localStorage.setItem("SPECTRAL_LIVE_STATE", JSON.stringify(G)); } catch (e) {}
 }
@@ -497,9 +522,11 @@ function handleRemotePhoneCommand(cmd) {
   if (!G.players || G.gameOver || G.isAnimatingHunt) return;
   if (typeof cmd.charIdx === "number" && cmd.charIdx >= 0 && cmd.charIdx < G.players.length) {
     G.selectedChar = cmd.charIdx;
+    G.currentFloorView = getRoom(G.players[G.selectedChar].roomId).floor;
   }
   var act = cmd.action;
-  if (act === "move-room") clickRoomTile(cmd.room);
+  if (act === "select-char") { renderAll(); return; }
+  else if (act === "move-room") clickRoomTile(cmd.room);
   else if (act === "open-door") openDoorWithoutMoving(cmd.room);
   else if (act === "use-stairs") traverseStairsTo(cmd.target);
   else if (act === "search-room") searchCurrentRoom();
@@ -534,7 +561,7 @@ function handleRemotePhoneCommand(cmd) {
 }
 
 function sendPhoneCmd(payload) {
-  payload.charIdx = G.selectedChar || 0;
+  payload.charIdx = isMobileClient ? mobileCharIdx : (G.selectedChar || 0);
   if (clientConn && clientConn.open) {
     clientConn.send(payload);
   } else {
@@ -547,7 +574,11 @@ window.addEventListener("storage", function(e) {
   if (e.key === "SPECTRAL_PHONE_CMD" && !isMobileClient && e.newValue) {
     try { handleRemotePhoneCommand(JSON.parse(e.newValue)); } catch (err) {}
   } else if (e.key === "SPECTRAL_LIVE_STATE" && isMobileClient && e.newValue) {
-    try { G = JSON.parse(e.newValue); renderMobileController(); } catch (err) {}
+    try {
+      G = JSON.parse(e.newValue);
+      G.selectedChar = mobileCharIdx;
+      renderMobileController();
+    } catch (err) {}
   }
 });
 
@@ -2909,8 +2940,10 @@ document.addEventListener("click", function(e) {
   }
   var mChar = e.target.closest("[data-m-action='m-select-char']");
   if (mChar) {
-    G.selectedChar = parseInt(mChar.getAttribute("data-idx"), 10);
+    mobileCharIdx = parseInt(mChar.getAttribute("data-idx"), 10);
+    G.selectedChar = mobileCharIdx;
     renderMobileController();
+    sendPhoneCmd({ action: "select-char" });
     return;
   }
 
@@ -3085,14 +3118,80 @@ function enableMobileMode(prefillCode) {
   }
 }
 
+function showActiveMobileScreen() {
+  document.getElementById("m-join-screen").style.display = "none";
+  document.getElementById("m-controller-screen").style.display = "flex";
+  setMobileTab("actions");
+  if (mobileCharIdx >= (G.players ? G.players.length : 1)) mobileCharIdx = 0;
+  G.selectedChar = mobileCharIdx;
+  renderMobileController();
+}
+
 function connectPhoneToHost(code) {
   var st = document.getElementById("m-conn-status");
-  var upperCode = (code || "").trim().toUpperCase();
-
-  if (!upperCode) {
-    if (st) st.textContent = "⚠️ Please enter the 4-digit Room Code (e.g., SP4829)";
+  var cleanCode = (code || "").trim().toUpperCase();
+  if (!cleanCode) {
+    if (st) st.textContent = "⚠️ Enter the 4-digit Room Code shown on the TV.";
     return;
   }
+
+  var saved = localStorage.getItem("SPECTRAL_LIVE_STATE");
+  if (cleanCode === "LOCAL" || !window.Peer) {
+    if (saved) { try { G = JSON.parse(saved); } catch (e) {} }
+    showActiveMobileScreen();
+    return;
+  }
+
+  if (st) st.textContent = "📡 Connecting to Big Screen [" + cleanCode + "]...";
+  try {
+    if (clientPeer && !clientPeer.destroyed) clientPeer.destroy();
+    clientPeer = new Peer(PEER_CONFIG);
+
+    var fallbackTimer = setTimeout(function() {
+      if (!clientConn || !clientConn.open) {
+        if (st) st.textContent = "⚠️ Signaling slow—opening P.D.A. in Local/Offline mode...";
+        if (saved) { try { G = JSON.parse(saved); } catch (e) {} }
+        showActiveMobileScreen();
+      }
+    }, 6000);
+
+    clientPeer.on("open", function() {
+      clientConn = clientPeer.connect("spectral-host-" + cleanCode, { reliable: true });
+
+      clientConn.on("open", function() {
+        clearTimeout(fallbackTimer);
+        if (st) st.textContent = "✅ Linked to Big Screen!";
+        showActiveMobileScreen();
+        // Immediately request fresh state from Host TV so tabs populate!
+        clientConn.send({ type: "REQUEST_SYNC" });
+      });
+
+      clientConn.on("data", function(data) {
+        if (data && data.type === "STATE_SYNC" && data.G) {
+          G = data.G;
+          if (mobileCharIdx >= G.players.length) mobileCharIdx = 0;
+          G.selectedChar = mobileCharIdx;
+          if (document.getElementById("m-controller-screen").style.display === "none") {
+            showActiveMobileScreen();
+          } else {
+            renderMobileController();
+          }
+        }
+      });
+
+      clientConn.on("close", function() {
+        if (st) st.textContent = "⚠️ Connection to TV closed.";
+      });
+    });
+
+    clientPeer.on("error", function(err) {
+      clearTimeout(fallbackTimer);
+      if (st) st.textContent = "❌ Peer Error (" + err.type + "). Check Room Code!";
+    });
+  } catch (e) {
+    showActiveMobileScreen();
+  }
+}
 
   // 1. Same-Device Simulation or LocalStorage Fallback
   var saved = localStorage.getItem("SPECTRAL_LIVE_STATE");
