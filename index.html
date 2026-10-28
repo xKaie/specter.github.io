@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>SPECTRAL_PROTOCOL v9.8 // TV Host + Mobile P.D.A.</title>
+  <title>SPECTRAL_PROTOCOL v9.9 // TV Host + Mobile P.D.A.</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <script src="https://unpkg.com/mqtt@5.3.4/dist/mqtt.min.js"></script>
@@ -32,16 +32,17 @@
       <div class="m-char-bar" id="m-char-bar"></div>
       <div class="m-stats-row">
         <span id="m-loc-label" style="color:var(--cyan);">📍 The Van (1F)</span>
-        <span id="m-timer-badge" style="color:var(--red); display:none;">⏱️ 12s</span>
+        <span id="m-timer-badge" style="color:var(--red); display:none;">⏱️ 20s</span>
         <span id="m-san-label" style="color:var(--green);">Sanity: 100%</span>
       </div>
       <div class="m-pips-box">
         <div><span style="color:var(--green); font-weight:800; font-size:11px;">WALK MP:</span> <span id="m-mp-pips"></span></div>
         <div><span style="color:var(--cyan); font-weight:800; font-size:11px;">ACTION AP:</span> <span id="m-ap-pips"></span></div>
       </div>
-      <div style="display:grid; grid-template-columns:1fr 1.5fr; gap:6px;">
-        <button type="button" class="btn-amber" id="btn-m-undo" style="padding:8px; font-size:12px;">↩️ Undo Action</button>
-        <button type="button" class="btn-green" id="btn-m-end-turn" style="padding:8px; font-size:12px;">✓ END TURN</button>
+      <div style="display:grid; grid-template-columns:1fr 1fr 1.4fr; gap:5px;">
+        <button type="button" class="btn-purple" id="btn-m-open-lobby" style="padding:8px 6px; font-size:11px;">🔄 Squad / Setup</button>
+        <button type="button" class="btn-amber" id="btn-m-undo" style="padding:8px 6px; font-size:11px;">↩️ Undo</button>
+        <button type="button" class="btn-green" id="btn-m-end-turn" style="padding:8px 6px; font-size:11px;">✓ END TURN</button>
       </div>
     </div>
 
@@ -66,14 +67,14 @@
   <div class="modal-overlay" id="lobby-modal">
     <div class="modal-box" style="width:920px;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; gap:6px; flex-wrap:wrap;">
-        <h2 style="color:var(--cyan); font-size:16px;">SPECTRAL_PROTOCOL v9.8 // PROGRESSION, LOADOUT & TIERS</h2>
+        <h2 style="color:var(--cyan); font-size:16px;">SPECTRAL_PROTOCOL v9.9 // PROGRESSION, LOADOUT & TIERS</h2>
         <div style="display:flex; gap:6px; align-items:center;">
           <span id="lobby-cash-badge" class="hud-pill" style="border-color:var(--green); color:var(--green); font-size:12px;">💵 $0</span>
           <button type="button" class="btn-amber" id="btn-reset-meta" title="Reset Cash, Unlocks & Tiers">🔄 Reset Save</button>
           <button type="button" class="btn-purple" id="btn-switch-to-mobile-mode">📱 Phone Mode</button>
         </div>
       </div>
-      <p style="color:var(--dim); font-size:10.5px; margin-bottom:6px;">Complete challenges to permanently unlock &amp; promote Specialists (T1&rarr;T3 signature gear). Upgrade Van Equipment with 💵 Cash (⚠️ T2/T3 Van gear lost if squad wipes!).</p>
+      <p style="color:var(--dim); font-size:10.5px; margin-bottom:6px;">Complete challenges to permanently unlock &amp; promote Specialists (T1&rarr;T3 signature gear). Connected phones can also pick Specialists &amp; launch directly from their P.D.A.!</p>
 
       <div style="font-weight:700; font-size:11px; color:var(--purple);">1. SELECT GAME MODE:</div>
       <div class="mode-row" id="lobby-mode-row"></div>
@@ -154,7 +155,7 @@
 
   <header>
     <div class="brand">
-      <h1>SPECTRAL_PROTOCOL v9.8</h1>
+      <h1>SPECTRAL_PROTOCOL v9.9</h1>
       <span id="campaign-badge" style="color:var(--green); font-weight:700; font-size:11px;">💵 $0</span>
     </div>
     <div class="hud-stats">
@@ -165,7 +166,7 @@
       <div class="hud-pill" id="hud-breaker">BREAKER: ON</div>
       <div class="hud-pill" id="hud-key">KEY: ❌</div>
       <div class="hud-pill" id="hud-phase">INVESTIGATION</div>
-      <div class="hud-pill timer-pill" id="hud-hunt-timer" style="display:none;">⏱️ 12s</div>
+      <div class="hud-pill timer-pill" id="hud-hunt-timer" style="display:none;">⏱️ 20s</div>
       <button type="button" class="btn-amber" id="btn-undo" disabled>↩️ Undo</button>
       <button type="button" id="btn-audio-toggle">🔊 Audio: ON</button>
       <button type="button" class="btn-green" id="btn-end-round">✓ END TURN &raquo;</button>
@@ -188,7 +189,7 @@
     <div class="center-col">
       <div class="map-header-bar">
         <div class="floor-tabs" id="floor-tabs-container"></div>
-        <span style="font-size:10px; color:var(--dim);">Search = <strong>1 MP or 1 AP</strong> &bull; Hunts = <strong>2 AP</strong> &bull; Dropped items &amp; 🔍✓ show on tiles!</span>
+        <span style="font-size:10px; color:var(--dim);">Search = <strong>1 MP or 1 AP</strong> &bull; Hunts = <strong>2 AP</strong> &bull; Charred Crucifix still counts as a <strong>Ward</strong>!</span>
       </div>
       <div class="map-viewport">
         <div class="board-grid" id="board-grid"></div>
@@ -209,14 +210,14 @@
       <div class="tab-content" id="tab-log"><div class="log-feed" id="log-feed"></div></div>
       <div class="tab-content" id="tab-brief" style="display:none;"><div id="tab-brief-content" style="font-size:11px; line-height:1.45;"></div></div>
       <div class="tab-content" id="tab-journal" style="display:none;">
-        <div style="font-size:10px; color:var(--dim); margin-bottom:4px;">Paranormal Clues (Tap to cycle: ☐ &rarr; ☑ Confirmed &rarr; ❌ Ruled Out):</div>
+        <div style="font-size:10px; color:var(--dim); margin-bottom:4px;">Paranormal Clues (Tap to cycle: ☐ &rarr; ☑ Confirmed &rarr; ❓ Unsure &rarr; ❌ Ruled Out):</div>
         <div class="ev-grid" id="ev-grid"></div>
         <div style="font-size:10px; color:var(--dim); margin-bottom:4px;">Select Ghost Suspect (Act I Target):</div>
         <div class="suspect-list" id="suspect-list"></div>
         <div class="dossier-box" id="ghost-dossier"></div>
       </div>
       <div class="tab-content" id="tab-forensics" style="display:none;">
-        <div style="font-size:10px; color:var(--dim); margin-bottom:4px;">Forensic Traces (Tap to cycle: ☐ &rarr; ☑ Confirmed &rarr; ❌ Ruled Out):</div>
+        <div style="font-size:10px; color:var(--dim); margin-bottom:4px;">Forensic Traces (Tap to cycle: ☐ &rarr; ☑ Confirmed &rarr; ❓ Unsure &rarr; ❌ Ruled Out):</div>
         <div class="ev-grid" id="forensic-ev-grid"></div>
         <div style="font-size:10px; color:var(--dim); margin-bottom:4px;">Select Cause of Death (Act II Target):</div>
         <div class="suspect-list" id="death-suspect-list"></div>
