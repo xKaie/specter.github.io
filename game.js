@@ -14,9 +14,9 @@ function playSound(type) {
       o.type = "sine"; o.frequency.setValueAtTime(type === "tick" ? 65 : 95, now);
       g.gain.setValueAtTime(0.14, now); g.gain.linearRampToValueAtTime(0.01, now + 0.07);
       o.connect(g); g.connect(audioCtx.destination); o.start(now); o.stop(now + 0.08);
-    } else if (type === "emf_low") {
+    } else if (type === "emf_low" || type === "sensor") {
       var o2 = audioCtx.createOscillator(), g2 = audioCtx.createGain();
-      o2.type = "square"; o2.frequency.setValueAtTime(440, now);
+      o2.type = "square"; o2.frequency.setValueAtTime(type === "sensor" ? 660 : 440, now);
       g2.gain.setValueAtTime(0.06, now); g2.gain.linearRampToValueAtTime(0.01, now + 0.12);
       o2.connect(g2); g2.connect(audioCtx.destination); o2.start(now); o2.stop(now + 0.13);
     } else if (type === "emf5" || type === "clue") {
@@ -45,9 +45,7 @@ function getSmartHuntDurationSeconds() {
   var livingCount = G.players.filter(function(p) { return !p.spirit; }).length;
   var totalPhones = Math.max(hostConnections.length, Object.keys(connectedPhoneIds).length);
   var oneToOnePhones = (totalPhones >= livingCount && livingCount > 1);
-  var isNormal = (G.difficulty === "Normal");
-  var normalBonus = isNormal ? 8 : 0;
-
+  var normalBonus = (G.difficulty === "Normal") ? 8 : 0;
   if (!G.banishmentMode) {
     return oneToOnePhones ? (12 + normalBonus) : (8 + normalBonus + Math.max(1, livingCount) * 6);
   }
@@ -80,7 +78,7 @@ function startHuntTurnTimer() {
 }
 
 /* ============================================================================
-   2. SVG FLOORPLAN ART & v9.9 DATABASES (19 UNIQUE GHOSTS, 12 SPECIALISTS, TIERS)
+   2. SVG FLOORPLAN ART & v10.0 DATABASES (19 GHOSTS, 13 SPECIALISTS, 7 MAPS)
 ============================================================================ */
 function getRoomArtSVG(art) {
   var s = 'stroke="#94a3b8" stroke-width="2" fill="none"';
@@ -102,7 +100,7 @@ function isBindRoomMatch(r) {
   return false;
 }
 
-// v9.9: Any Crucifix on the floor (including a 0-charge Charred Crucifix) counts as a valid ritual Ward!
+// v10.0: Any Crucifix on the floor (including a 0-charge Charred Crucifix) counts as a valid Ward for rituals!
 function roomHasWard(r) {
   if (!r) return false;
   if (r.ward) return true;
@@ -119,6 +117,13 @@ function roomHasChargedWardOrCrux(r) {
   });
 }
 
+function transformCrucifixToCharred(crux) {
+  if (!crux) return;
+  crux.charges = 0;
+  if (crux.name.indexOf("Charred") === -1) crux.name = "Charred Crucifix (Ward)";
+  crux.desc = "0 Hunt-block charges left, but STILL counts as a valid Ward [✡️] on the floor for Act I/II/III Banishment!";
+}
+
 const DEATH_DB = {
   Poisoned: { category:"Internal / Toxin", traits:["UV: Residue/Stains","EMF: Faint/Organic","Temp: Ambient Air"], desc:"Arsenic-laced drink.", purgeText:"In bound room with Salt, Ward, or Crucifix on floor.", checkPurge:function(r){return r.salt||roomHasWard(r);} },
   Burned: { category:"Thermal / Energy", traits:["UV: Residue/Stains","EMF: Grid/Wire Surge","Temp: Scorched/Warm"], desc:"Electrical fire.", purgeText:"In bound room with Room Lights OFF.", checkPurge:function(r){return !r.lit;} },
@@ -133,37 +138,37 @@ const DEATH_DB = {
 };
 
 const GHOST_DB = {
-  Poltergeist: { ev:["Spirit Box","UV Fingerprints","Ghost Writing"], huntSanity:50, perceptMod:2, speed:3, pref:"doorsOpen", behavior:"Throws multiple objects (2 Touch Tokens) & swings doors open.", evParamText:"Needs 2+ Touch Tokens in room before Writing.", ritualText:"In Ghost/Corpse Room with Salt laid.", checkValid:function(r){return isBindRoomMatch(r)&&r.salt;} },
-  Banshee: { ev:["Ghost Orbs","UV Fingerprints","D.O.T.S."], huntSanity:50, perceptMod:3, speed:3, pref:"doorsClose", behavior:"Fixates on 1 Obsession target & shuts doors to isolate them.", evParamText:"Obsession must be inside house for Orbs/D.O.T.S.", ritualText:"In Ghost/Corpse Room OR [🪞 Mirror] Room with Salt.", checkValid:function(r){return (isBindRoomMatch(r)||r.tags.indexOf("Mirror")!==-1)&&r.salt;} },
-  Revenant: { ev:["Ghost Orbs","Ghost Writing","Freezing Temps"], huntSanity:50, perceptMod:4, speed:4, patrolSpeed:1, pref:"lightsOff", behavior:"Sprinter: Fast when chasing Noise/LoS, 1 Tile/rnd patrolling! Switches room lights OFF.", evParamText:"Only reveals Freezing when Lights are OFF.", ritualText:"In Ghost/Corpse Room with Room Lights ON.", checkValid:function(r){return isBindRoomMatch(r)&&r.lit;} },
-  Jinn: { ev:["EMF Level 5","Freezing Temps","UV Fingerprints"], huntSanity:50, perceptMod:3, speed:4, pref:"breakerOn", behavior:"Draws power from grid: Turns Master Breaker & room lights ON! Fast while Breaker is ON.", evParamText:"Only spikes EMF 5 while Master Breaker is ON.", ritualText:"In Ghost/Corpse Room while Breaker is OFF (or Floodlit).", checkValid:function(r){return (isBindRoomMatch(r)&&!G.breakerOn)||r.permLit;} },
-  Shade: { ev:["EMF Level 5","Ghost Writing","Freezing Temps"], huntSanity:35, perceptMod:2, speed:3, pref:"lightsOff", behavior:"Shy entity: Hunts late (35% Sanity), turns room lights OFF, and shuts doors.", evParamText:"Refuses EMF 5/Writing if 2+ players are in room.", ritualText:"In Ghost/Corpse Room ALONE with Lights ON.", checkValid:function(r){return isBindRoomMatch(r)&&r.lit&&G.players.filter(function(p){return !p.spirit&&p.roomId===r.id;}).length===1;} },
-  Demon: { ev:["Spirit Box","Ghost Writing","D.O.T.S."], huntSanity:70, perceptMod:4, speed:3, pref:"lightsBreak", behavior:"Hunts early at 70% Sanity (+4 Percept) & shatters room light bulbs when angry!", evParamText:"Silent on Spirit Box if room has Ward or Crucifix (Wipe Ward/Pick up Crucifix to scan!).", ritualText:"In any room with Ward or Crucifix (Charred Crucifix works!).", checkValid:function(r){return roomHasWard(r);} },
-  Phantom: { ev:["Spirit Box","UV Fingerprints","D.O.T.S."], huntSanity:50, perceptMod:3, speed:3, pref:"lightsOff", behavior:"Manifestations drain heavy Sanity (-4) & extinguishes room lights.", evParamText:"Only triggers D.O.T.S. when no living player is inside room!", ritualText:"In Ghost/Corpse Room with Lights OFF.", checkValid:function(r){return isBindRoomMatch(r)&&!r.lit;} },
-  Wraith: { ev:["EMF Level 5","Spirit Box","D.O.T.S."], huntSanity:50, perceptMod:3, speed:3, pref:"doorsOpen", behavior:"Floats above ground—ignores Salt in Hunts & unlatches closed/unexplored doors!", evParamText:"Only gives EMF 5 inside its room.", ritualText:"In Ghost/Corpse Room with Salt AND Ward/Crucifix.", checkValid:function(r){return isBindRoomMatch(r)&&r.salt&&roomHasWard(r);} },
-  Mare: { ev:["Spirit Box","Ghost Orbs","Ghost Writing"], huntSanity:60, perceptMod:3, speed:3, pref:"breakerOff", behavior:"Hates light: Hunts at 60% Sanity, trips Breaker OFF, and shatters bulbs!", evParamText:"Refuses Orbs/Writing if Room Lights are ON!", ritualText:"In Ghost/Corpse Room with Lights ON.", checkValid:function(r){return isBindRoomMatch(r)&&r.lit;} },
-  Oni: { ev:["EMF Level 5","Freezing Temps","D.O.T.S."], huntSanity:50, perceptMod:4, speed:3, pref:"lightsBreak", behavior:"Brutal physical entity: Slams/breaks doors & shatters room lights when angry!", evParamText:"Only reveals EMF 5/Freezing when 2+ players in room (or Solo).", ritualText:"In Ghost/Corpse Room with 2+ Investigators (1 if Solo).", checkValid:function(r){return isBindRoomMatch(r)&&G.players.filter(function(p){return p.roomId===r.id;}).length>=(G.players.length===1?1:2);} },
-  Yokai: { ev:["Spirit Box","Ghost Orbs","D.O.T.S."], huntSanity:65, perceptMod:2, speed:3, pref:"breakerOn", behavior:"Drawn to electronics: Turns Breaker, lights & TV/PCs ON! Hunts at 65% Sanity.", evParamText:"Spirit Box requires a 2nd ON Electronic in hand.", ritualText:"In Ghost/Corpse Room with ALL Electronics OFF.", checkValid:function(r,p){return isBindRoomMatch(r)&&!p.hands.some(function(i){return i.elec&&i.on;});} },
-  Mimic: { ev:["Spirit Box","UV Fingerprints","Freezing Temps"], huntSanity:50, perceptMod:3, speed:3, pref:"random", behavior:"Imitator: Spawns false-positive Ghost Orbs & randomly mimics other haunt habits!", evParamText:"Shows fake [Ghost Orbs] alongside its 3 real clues!", ritualText:"In [🪞 Mirror] OR Ghost/Corpse Room with Salt.", checkValid:function(r){return (isBindRoomMatch(r)||r.tags.indexOf("Mirror")!==-1)&&r.salt;} },
-  Hantu: { ev:["UV Fingerprints","Ghost Orbs","Freezing Temps"], huntSanity:50, perceptMod:3, speed:4, pref:"breakerOff", behavior:"Thermal Speed: Obsessively trips Master Breaker OFF to freeze the house!", evParamText:"Only reveals Freezing Temps when Master Breaker is OFF (or on B1).", ritualText:"In Ghost/Corpse Room with Lights ON (or Floodlit).", checkValid:function(r){return isBindRoomMatch(r)&&(r.lit||r.permLit);} },
-  Goryo: { ev:["EMF Level 5","UV Fingerprints","D.O.T.S."], huntSanity:50, perceptMod:3, speed:3, pref:"doorsClose", behavior:"Homebody: Never roams in Investigation & shuts its room doors for privacy.", evParamText:"D.O.T.S. only visible via Van or adjacent Cam when room is empty!", ritualText:"In Ghost/Corpse Room with Doors Shut and Salt laid.", checkValid:function(r){return isBindRoomMatch(r)&&r.salt&&r.closedDoors.length>0;} },
-  Myling: { ev:["EMF Level 5","UV Fingerprints","Ghost Writing"], huntSanity:50, perceptMod:2, speed:3, pref:"doorsClose", behavior:"Silent Stalker: Footsteps only audible within 1 tile; shuts doors to muffle sound.", evParamText:"Refuses EMF 5/Writing if player has 2 ON Electronics.", ritualText:"In Ghost/Corpse Room with Doors Shut and Lights OFF.", checkValid:function(r){return isBindRoomMatch(r)&&!r.lit&&r.closedDoors.length>0;} },
-  Onryo: { ev:["Spirit Box","Ghost Orbs","Freezing Temps"], huntSanity:60, perceptMod:3, speed:3, pref:"lightsOff", behavior:"Flame Fear: Extinguishes room lights; Smudge blinds Onryo for 2 rounds.", evParamText:"Refuses Spirit Box if Room Lights ON or Ward/Crucifix present.", ritualText:"In Ghost/Corpse Room while Smudge/Incense is active.", checkValid:function(r){return isBindRoomMatch(r)&&G.smudgeSafe>0;} },
-  Deogen: { ev:["Spirit Box","Freezing Temps","D.O.T.S."], huntSanity:40, perceptMod:6, speed:4, pref:"doorsOpen", behavior:"The Seer (+6 Percept!): Swings doors wide open so you can't hide, but slows to Speed 1 when adjacent!", evParamText:"Only answers Spirit Box in its exact room.", ritualText:"In Ghost/Corpse Room while EXPOSED (Not Hidden) with Lights ON.", checkValid:function(r,p){return isBindRoomMatch(r)&&r.lit&&!p.isHidden;} },
-  Moroi: { ev:["Spirit Box","Ghost Writing","Freezing Temps"], huntSanity:50, perceptMod:3, speed:3, pref:"lightsOff", behavior:"Blood Curse: Spirit Box curses user (-1 extra San/rnd until Pills)! Turns room lights OFF.", evParamText:"Only writes in Ghost Book when Room Lights are OFF.", ritualText:"In Ghost/Corpse Room with Salt AND Ward/Crucifix.", checkValid:function(r){return isBindRoomMatch(r)&&r.salt&&roomHasWard(r);} },
-  Phantasm: { ev:["UV Fingerprints","Ghost Orbs","D.O.T.S."], huntSanity:55, perceptMod:3, speed:3, pref:"breakerOn", behavior:"Mind Mirage: Projects indistinguishable false readings (including Spirit Box voices) below 65% Sanity & surges lights/TVs!", evParamText:"Refuses Orbs/D.O.T.S. if user Sanity < 50% unless Room Lights are ON or Ward/Crucifix is laid.", ritualText:"In Ghost/Corpse or [🪞 Mirror] Room with Lights ON (Sanity < 50% risks binding an illusion without Ward/Crucifix!).", checkValid:function(r){return (isBindRoomMatch(r)||r.tags.indexOf("Mirror")!==-1)&&(r.lit||r.permLit);} }
+  Poltergeist: { ev:["Spirit Box","UV Fingerprints","Ghost Writing"], huntSanity:50, perceptMod:2, speed:3, pref:"doorsOpen", behavior:"Flings floor items into adjacent rooms, spawns 2 Touch Tokens/rnd & swings doors open.", evParamText:"Needs 2+ Touch Tokens in room before Writing.", ritualText:"In Ghost/Corpse Room with Salt laid.", checkValid:function(r){return isBindRoomMatch(r)&&r.salt;} },
+  Banshee: { ev:["Ghost Orbs","UV Fingerprints","D.O.T.S."], huntSanity:50, perceptMod:3, speed:3, pref:"doorsClose", behavior:"Fixates on 1 Obsession target (ignores others in Hunts while Obsession is inside!) & shuts doors.", evParamText:"Obsession must be inside house for Orbs/D.O.T.S.", ritualText:"In Ghost/Corpse Room OR [🪞 Mirror] Room with Salt.", checkValid:function(r){return (isBindRoomMatch(r)||r.tags.indexOf("Mirror")!==-1)&&r.salt;} },
+  Revenant: { ev:["Ghost Orbs","Ghost Writing","Freezing Temps"], huntSanity:50, perceptMod:4, speed:4, patrolSpeed:1, pref:"lightsOff", behavior:"Sprinter: Speed 4 chasing Noise/LoS, 1 Tile/rnd patrolling! Switches room lights OFF.", evParamText:"Only reveals Freezing when Lights are OFF.", ritualText:"In Ghost/Corpse Room with Room Lights ON.", checkValid:function(r){return isBindRoomMatch(r)&&r.lit;} },
+  Jinn: { ev:["EMF Level 5","Freezing Temps","UV Fingerprints"], huntSanity:50, perceptMod:3, speed:4, pref:"breakerOn", behavior:"Draws power from grid: Turns Breaker & lights ON, triggers EMP surges! Fast while Breaker is ON.", evParamText:"Only spikes EMF 5 while Master Breaker is ON.", ritualText:"In Ghost/Corpse Room while Breaker is OFF (or Floodlit).", checkValid:function(r){return (isBindRoomMatch(r)&&!G.breakerOn)||r.permLit;} },
+  Shade: { ev:["EMF Level 5","Ghost Writing","Freezing Temps"], huntSanity:35, perceptMod:2, speed:3, pref:"lightsOff", behavior:"Shy entity: Hunts at 35% Sanity, flees or stays quiet when 2+ players are in its room.", evParamText:"Refuses EMF 5/Writing if 2+ players are in room.", ritualText:"In Ghost/Corpse Room ALONE with Lights ON.", checkValid:function(r){return isBindRoomMatch(r)&&r.lit&&G.players.filter(function(p){return !p.spirit&&p.roomId===r.id;}).length===1;} },
+  Demon: { ev:["Spirit Box","Ghost Writing","D.O.T.S."], huntSanity:70, perceptMod:4, speed:3, pref:"lightsBreak", behavior:"Hunts early at 70% Sanity (-1 Hunt Grace Cooldown), shatters bulbs, but Crucifixes block it from 1 tile further!", evParamText:"Silent on Spirit Box if room has Ward or Crucifix.", ritualText:"In any room with Ward or Crucifix (Charred Crucifix works!).", checkValid:function(r){return roomHasWard(r);} },
+  Phantom: { ev:["Spirit Box","UV Fingerprints","D.O.T.S."], huntSanity:50, perceptMod:3, speed:3, pref:"lightsOff", behavior:"Drains extra Sanity in Line of Sight; Night-Vision Cam flash teleports it back to its room!", evParamText:"Only triggers D.O.T.S. when no living player is inside room!", ritualText:"In Ghost/Corpse Room with Lights OFF.", checkValid:function(r){return isBindRoomMatch(r)&&!r.lit;} },
+  Wraith: { ev:["EMF Level 5","Spirit Box","D.O.T.S."], huntSanity:50, perceptMod:3, speed:3, pref:"doorsOpen", behavior:"Floats above ground—NEVER disturbs Salt (🧂👣) in Investigation or Hunts & can warp to players!", evParamText:"Only gives EMF 5 inside its room.", ritualText:"In Ghost/Corpse Room with Salt AND Ward/Crucifix.", checkValid:function(r){return isBindRoomMatch(r)&&r.salt&&roomHasWard(r);} },
+  Mare: { ev:["Spirit Box","Ghost Orbs","Ghost Writing"], huntSanity:60, perceptMod:3, speed:3, pref:"breakerOff", behavior:"Hates light: Hunts at 65% in Dark vs 40% in Light, counter-slams switches OFF, and trips Breaker!", evParamText:"Refuses Orbs/Writing if Room Lights are ON!", ritualText:"In Ghost/Corpse Room with Lights ON.", checkValid:function(r){return isBindRoomMatch(r)&&r.lit;} },
+  Oni: { ev:["EMF Level 5","Freezing Temps","D.O.T.S."], huntSanity:50, perceptMod:4, speed:3, pref:"lightsBreak", behavior:"Brutal physical entity: Spawns 2 Touch Tokens in crowds, shatters doors/bulbs, never whispers quietly!", evParamText:"Only reveals EMF 5/Freezing when 2+ players in room (or Solo).", ritualText:"In Ghost/Corpse Room with 2+ Investigators (1 if Solo).", checkValid:function(r){return isBindRoomMatch(r)&&G.players.filter(function(p){return p.roomId===r.id;}).length>=(G.players.length===1?1:2);} },
+  Yokai: { ev:["Spirit Box","Ghost Orbs","D.O.T.S."], huntSanity:65, perceptMod:2, speed:3, pref:"breakerOn", behavior:"Drawn to electronics (75% Hunt if 2+ ON in room), deaf >2 tiles away in Hunts except to active TV/PCs!", evParamText:"Spirit Box requires a 2nd ON Electronic in hand.", ritualText:"In Ghost/Corpse Room with ALL Electronics OFF.", checkValid:function(r,p){return isBindRoomMatch(r)&&!p.hands.some(function(i){return i.elec&&i.on;});} },
+  Mimic: { ev:["Spirit Box","UV Fingerprints","Freezing Temps"], huntSanity:50, perceptMod:3, speed:3, pref:"random", behavior:"Shapeshifter: Shows fake Ghost Orbs & shifts its active Ghost persona every 3 rounds!", evParamText:"Shows fake [Ghost Orbs] alongside its 3 real clues!", ritualText:"In [🪞 Mirror] OR Ghost/Corpse Room with Salt.", checkValid:function(r){return (isBindRoomMatch(r)||r.tags.indexOf("Mirror")!==-1)&&r.salt;} },
+  Hantu: { ev:["UV Fingerprints","Ghost Orbs","Freezing Temps"], huntSanity:50, perceptMod:3, speed:4, pref:"breakerOff", behavior:"Thermal Speed: Trips Breaker OFF, spreads frost (❄️) to adjacent rooms while Breaker is OFF!", evParamText:"Only reveals Freezing Temps when Master Breaker is OFF (or on B1).", ritualText:"In Ghost/Corpse Room with Lights ON (or Floodlit).", checkValid:function(r){return isBindRoomMatch(r)&&(r.lit||r.permLit);} },
+  Goryo: { ev:["EMF Level 5","UV Fingerprints","D.O.T.S."], huntSanity:50, perceptMod:3, speed:3, pref:"doorsClose", behavior:"Camera-Shy Hermit: Never roams in Investigation, shuts doors, turns off floor Cams if doors are open.", evParamText:"D.O.T.S. only visible via Van or adjacent Cam when room is empty!", ritualText:"In Ghost/Corpse Room with Doors Shut and Salt laid.", checkValid:function(r){return isBindRoomMatch(r)&&r.salt&&r.closedDoors.length>0;} },
+  Myling: { ev:["EMF 5" ? "EMF Level 5" : "EMF Level 5","UV Fingerprints","Ghost Writing"], huntSanity:50, perceptMod:2, speed:3, pref:"doorsClose", behavior:"Silent Stalker: Frequent whispers within 1 tile, but footsteps are completely silent >1 tile away in Hunts!", evParamText:"Refuses EMF 5/Writing if player has 2 ON Electronics.", ritualText:"In Ghost/Corpse Room with Doors Shut and Lights OFF.", checkValid:function(r){return isBindRoomMatch(r)&&!r.lit&&r.closedDoors.length>0;} },
+  Onryo: { ev:["Spirit Box","Ghost Orbs","Freezing Temps"], huntSanity:60, perceptMod:3, speed:3, pref:"lightsOff", behavior:"Flame Fear: Extinguishes lights/flames (every 3rd snuffed flame triggers a Hunt!); Smudge blinds for 2 rounds.", evParamText:"Refuses Spirit Box if Room Lights ON or Ward/Crucifix present.", ritualText:"In Ghost/Corpse Room while Smudge/Incense is active.", checkValid:function(r){return isBindRoomMatch(r)&&G.smudgeSafe>0;} },
+  Deogen: { ev:["Spirit Box","Freezing Temps","D.O.T.S."], huntSanity:40, perceptMod:6, speed:4, pref:"doorsOpen", behavior:"The Seer (+6 Percept!): Always knows where you are, swings doors open, but slows to Speed 1 when adjacent!", evParamText:"Only answers Spirit Box in its exact room.", ritualText:"In Ghost/Corpse Room while EXPOSED (Not Hidden) with Lights ON.", checkValid:function(r,p){return isBindRoomMatch(r)&&r.lit&&!p.isHidden;} },
+  Moroi: { ev:["Spirit Box","Ghost Writing","Freezing Temps"], huntSanity:50, perceptMod:3, speed:3, pref:"lightsOff", behavior:"Blood Curse: Spirit Box curses user (-1 San/rnd & +2 Ghost Percept vs cursed target until Pills)! Speed scales with Sanity.", evParamText:"Only writes in Ghost Book when Room Lights are OFF.", ritualText:"In Ghost/Corpse Room with Salt AND Ward/Crucifix.", checkValid:function(r){return isBindRoomMatch(r)&&r.salt&&roomHasWard(r);} },
+  Phantasm: { ev:["UV Fingerprints","Ghost Orbs","D.O.T.S."], huntSanity:55, perceptMod:3, speed:3, pref:"breakerOn", behavior:"Mind Mirage: Projects false Spirit Box voices & EMF 3 spikes below 65% Sanity & surges lights/TVs!", evParamText:"Refuses Orbs/D.O.T.S. if user Sanity < 50% unless Room Lights are ON or Ward/Crucifix is laid.", ritualText:"In Ghost/Corpse or [🪞 Mirror] Room with Lights ON.", checkValid:function(r){return (isBindRoomMatch(r)||r.tags.indexOf("Mirror")!==-1)&&(r.lit||r.permLit);} }
 };
 
 const PROTOTYPE_REWARDS = [
   { name:"Soul Defibrillator", desc:"1 AP: Revives 1 Helper Spirit at 50% Sanity!", elec:false, charges:1, proto:"defib" },
-  { name:"Motion Sensor Pack", desc:"1 AP: Alerts log & reveals Ghost on map when entered!", elec:true, on:true, charges:2, proto:"sensor" },
+  { name:"Acoustic Parabolic Mic", desc:"1 AP: Pinpoints exact distance in tiles to the Ghost!", elec:true, on:true, charges:3, proto:"mic" },
   { name:"Stun Flare", desc:"1 AP: Blinds & halts Ghost for 1 Round!", elec:false, charges:1, proto:"flare" },
   { name:"Ectoplasm Analyzer", desc:"1 AP (In Ghost Room): 100% Clue discovery!", elec:true, on:true, charges:1, proto:"analyzer" }
 ];
 
 const SIDE_OBJECTIVE_POOL = [
   { id:"obj_smudge", text:"Cleanse a room with Smudge or Thurible" },
-  { id:"obj_salt", text:"Lay a Salt barrier inside the house" },
+  { id:"obj_salt", text:"Lay a Salt barrier inside the building" },
   { id:"obj_ward", text:"Place a Crucifix, Ward, or Floodlight in a room" },
   { id:"obj_trace", text:"Uncover at least 1 hidden Forensic Trace" },
   { id:"obj_verify", text:"Uncover the Anchor (Heirloom or Corpse)" }
@@ -174,10 +179,20 @@ const DIFFICULTIES = {
   Hard: { name:"Hard (Nightmare)", bonusSanity:0, houseDrain:1, darkDrain:2, eventDrainMult:1.5, startBreaker:false, perceptBonus:2, baseHuntRounds:5, huntCooldownTurns:1, apScanSanity:true, evSuccessRate:0.58, decoyRelic:true, reserveLives:1, desc:"• Heavy Drain: -1/rnd (+2 Dark). 12s Hunt Timer.<br>• +2 Ghost Perception & 1.5x Cash Payout!" }
 };
 
+const MAP_ARCHETYPES = {
+  Suburban: { label:"🏠 Suburban Residence", ruleText:"Standard HVAC Breaker heating, TV/PC surges & Back Doors.", hasGrid:true, securityRate:0 },
+  Vault: { label:"🏢 Cybernetic Vault", ruleText:"🔐 High-Security Doors require 🧑‍💻 Hacker (from Van/room) OR Breaker OFF!", hasGrid:true, securityRate:0.55 },
+  Asylum: { label:"🏥 St. Jude's Asylum", ruleText:"Long corridors, 🔐 Magnetic Bulkheads (open when Breaker OFF or Hacked) & CCTV.", hasGrid:true, securityRate:0.35 },
+  Penitentiary: { label:"⛓️ Blackwood Prison", ruleText:"O-Ring Donut around Open Atrium (Cross-Atrium Line of Sight) & Control Lever.", hasGrid:true, securityRate:0.25 },
+  Campground: { label:"🏕️ Pineview Camp", ruleText:"Split Cabins, doorless Forest Trails, 🔥 Campfire Pit & Generator.", hasGrid:true, securityRate:0 },
+  Catacombs: { label:"🏛️ Sunken Catacombs", ruleText:"0 Electricity (Naturally Cold)! Light 🔥 Wall Braziers (1 AP) for warmth & light.", hasGrid:false, securityRate:0 },
+  Cemetery: { label:"🪦 Oakhollow Cemetery", ruleText:"Open 1F Grave Plots over B1 Mausoleum Crypts & 🔔 Chapel Bell Lure.", hasGrid:true, securityRate:0 }
+};
+
 const HOUSE_SIZES = {
-  Small: { label:"Small House", baseRooms:10, baseLights:3, backDoors:1, desc:"9–11 Interior Rooms (+ Free Van & Yards). Base Payout: $150." },
-  Medium: { label:"Medium House", baseRooms:15, baseLights:4, backDoors:2, desc:"14–16 Interior Rooms (+ Free Van & Yards). Base Payout: $250." },
-  Large: { label:"Large Manor", baseRooms:20, baseLights:5, backDoors:2, desc:"19–21 Interior Rooms (+ Free Van & Yards). Base Payout: $400." }
+  Small: { label:"Small Scale", baseRooms:10, baseLights:3, backDoors:1, desc:"9–11 Interior Areas (+ Van & Yards). Base Payout: $150." },
+  Medium: { label:"Medium Scale", baseRooms:15, baseLights:4, backDoors:2, desc:"14–16 Interior Areas (+ Van & Yards). Base Payout: $250." },
+  Large: { label:"Large Scale", baseRooms:20, baseLights:5, backDoors:2, desc:"19–21 Interior Areas (+ Van & Yards). Base Payout: $400." }
 };
 
 const SPECIALIST_TEMPLATES = [
@@ -192,7 +207,8 @@ const SPECIALIST_TEMPLATES = [
   { name:"Detective", icon:"🕵️", sanity:28, maxSanity:28, ap:3, maxAp:3, mp:2, maxMp:2, stealth:1, resolve:1, roleDesc:"Auto-uncovers hidden Traces & Spare Key on room entry (0 AP)! Unlocks Back Doors free.", startHand:{name:"Forensic UV Lamp",desc:"1 AP: Scans UV Prints + ANY 🩸 Trace type!",elec:true,on:true}, startBelt:{name:"Master Lockpick",desc:"Passive: Unlatches Back Doors free.",uses:99} },
   { name:"Houndmaster", icon:"🐕", sanity:30, maxSanity:30, ap:3, maxAp:3, mp:2, maxMp:2, stealth:2, resolve:0, roleDesc:"Loyal K9 blocks the 1st Ghost Claim attack! Buzzer lures Ghost.", startHand:{name:"Thermal Scent Tracker",desc:"1 AP: Thermo + senses adjacent Ghost!",elec:true,on:true}, startBelt:{name:"Acoustic Decoy Buzzer",desc:"1 AP: Drop Lure Beacon in room (2x).",uses:2} },
   { name:"Archivist", icon:"📜", sanity:26, maxSanity:26, ap:3, maxAp:3, mp:2, maxMp:2, stealth:0, resolve:3, roleDesc:"+3 Resolve! Starts contract with 1 Forensic Death Trait already revealed!", startHand:{name:"Ghost Writing Tome",desc:"Drop on floor: +25% Writing rate.",elec:false,deploy:true,written:false}, startBelt:{name:"Smudge Bundle",desc:"1 AP: Smudge & blind Ghost (2x).",uses:2} },
-  { name:"Locksmith", icon:"🔨", sanity:32, maxSanity:32, ap:3, maxAp:3, mp:2, maxMp:2, stealth:2, resolve:1, roleDesc:"Opening doors in Hunts makes 0 Noise! Door Wedges slow Ghost by -2 Speed & prevent door breaking.", startHand:{name:"Overclocked EMF",desc:"1 AP: Scan EMF 5 + 🩸 EMF Trace.",elec:true,on:true}, startBelt:{name:"Heavy Door Wedge",desc:"1 AP: Reinforce Shut Doors (3x).",uses:3} }
+  { name:"Locksmith", icon:"🔨", sanity:32, maxSanity:32, ap:3, maxAp:3, mp:2, maxMp:2, stealth:2, resolve:1, roleDesc:"Opening doors in Hunts makes 0 Noise! Door Wedges slow Ghost by -2 Speed & prevent door breaking.", startHand:{name:"Overclocked EMF",desc:"1 AP: Scan EMF 5 + 🩸 EMF Trace.",elec:true,on:true}, startBelt:{name:"Heavy Door Wedge",desc:"1 AP: Reinforce Shut Doors (3x).",uses:3} },
+  { name:"Hacker", icon:"🧑‍💻", sanity:28, maxSanity:28, ap:3, maxAp:3, mp:2, maxMp:2, stealth:1, resolve:1, roleDesc:"Hacks 🔐 High-Security & Unexplored Doors remotely from The Van (1 AP) or adjacent (0 AP)!", startHand:{name:"Cyber Decryption Deck",desc:"1 AP: Hack security doors or ping room sensors.",elec:true,on:true}, startBelt:{name:"Remote Override Keycard",desc:"1 AP: Remotely unlock/shut any door from Van (3x).",uses:3} }
 ];
 
 const INTERN_TEMPLATE = {
@@ -212,7 +228,8 @@ const SPECIALIST_CHALLENGES = [
   { id:"search_10", target:10, desc:"Uncover 10 Traces or Keys via Search" },
   { id:"chase_5", target:5, desc:"Survive 5 Hunt rounds inside the house" },
   { id:"writing_5", target:5, desc:"Confirm Ghost Writing 5 times" },
-  { id:"doors_15", target:15, desc:"Shut or unlock 15 Doors" }
+  { id:"doors_15", target:15, desc:"Shut or unlock 15 Doors" },
+  { id:"hack_5", target:5, desc:"Deploy 5 Motion Sensors or Hack 5 Security Doors" }
 ];
 
 const VAN_SHOP_CATALOG = [
@@ -223,11 +240,12 @@ const VAN_SHOP_CATALOG = [
   { key:"cam", name:"Night-Vision Cam", baseDesc:"1 AP: Scan Ghost Orbs & stops Dark drain.", elec:true, on:true, extraCost:65, t2Cost:100, t3Cost:225, t2Desc:"+20% Clue Rate", t3Desc:"100% Clue Rate & Silent in Hunts" },
   { key:"book", name:"Ghost Writing Book", baseDesc:"Drop on floor: Ghost writes silently.", elec:false, deploy:true, written:false, extraCost:65, t2Cost:100, t3Cost:200, t2Desc:"+20% Write Rate", t3Desc:"100% Write Rate in Ghost Room" },
   { key:"dots", name:"D.O.T.S. Projector", baseDesc:"Drop on floor: Laser silhouette.", elec:true, on:true, deploy:true, triggered:false, extraCost:65, t2Cost:100, t3Cost:200, t2Desc:"+20% Trigger Rate", t3Desc:"100% Trigger Rate" },
+  { key:"sensor", name:"Motion Sensor Pack", baseDesc:"1 AP: Deploy wall sensor in room (alerts when Ghost moves in!).", elec:true, on:true, charges:2, proto:"sensor", extraCost:65, t2Cost:100, t3Cost:200, t2Desc:"3 Sensor Pucks", t3Desc:"4 Sensor Pucks & Silent" },
   { key:"supp", name:"Crucifix, Smudge & Salt", baseDesc:"Van Protective Consumable Pack.", elec:false, extraCost:75, t2Cost:125, t3Cost:250, t2Desc:"+1 Charge (Crux 2x, Smudge 3x, Salt 4x)", t3Desc:"+2 Charges (Crux 3x, Smudge 4x, Salt 5x)" }
 ];
 
-let selectedMode = "OneShot", selectedClasses = [false,false,false,false,false,false,false,false,false,false,false,false], selectedInternCount = 4, selectedDifficulty = "Normal", selectedHouseSize = "Medium";
-let CAMP = { active:false, missionNum:1, reserveLives:2, usedClassIndices:[], pendingSquad:null, bossPrimary:null, bossMutationGhost:null, bossExtraEv:null, bossDeath:null, cluesUnlocked:[] };
+let selectedMode = "OneShot", selectedClasses = [false,false,false,false,false,false,false,false,false,false,false,false,false], selectedInternCount = 4, selectedDifficulty = "Normal", selectedHouseSize = "Medium", selectedMapArchetype = "Suburban";
+let CAMP = { active:false, missionNum:1, reserveLives:2, mapTrail:["Suburban","Cemetery","Vault"], usedClassIndices:[], pendingSquad:null, bossPrimary:null, bossMutationGhost:null, bossExtraEv:null, bossDeath:null, cluesUnlocked:[] };
 let G = {}, undoSnapshots = {};
 let localInspectedGhost = "Poltergeist", localInspectedDeath = "Poisoned", mobileShowLobby = false;
 
@@ -289,15 +307,6 @@ function buildTieredItem(baseItem, tier) {
   return it;
 }
 
-function transformCrucifixToCharred(crux) {
-  if (!crux) return;
-  crux.charges = 0;
-  if (crux.name.indexOf("Charred") === -1) {
-    crux.name = "Charred Crucifix (Ward)";
-  }
-  crux.desc = "0 Hunt-block charges left, but STILL counts as a valid Ward [✡️] on the floor for Act I/II/III Banishment!";
-}
-
 function loseVanUpgradesOnDefeat() {
   var lostAny = (META.extraPills > 0);
   META.extraPills = 0;
@@ -314,22 +323,69 @@ function loseVanUpgradesOnDefeat() {
 }
 
 /* ============================================================================
-   3. MULTI-FLOOR HOUSE GENERATOR
+   3. MULTI-FLOOR & 7-ARCHETYPE PROCEDURAL MAP GENERATOR
 ============================================================================ */
-function generateMultiFloorHouse(sizeKey, numBackDoors) {
+const ARCHETYPE_ROOM_NAMES = {
+  Vault: {
+    r1:"Security Checkpoint", r2:"Biometric Corridor", r3:"Mainframe Elevator (1F)", b1:"Sub-Level Vault (B1)", f2:"Executive Server Deck (2F)",
+    f1Pool:["Server Mainframe A","Server Mainframe B","Crypto Cold Storage","Director's Office","Security Overwatch","Power Relay Bay","Laser Grid Hall","Quantum Lab","Fiber Optic Hub","Terminal Annex","Data Shredder Room","Armory Locker","R&D Prototype Bay","Executive Boardroom","Cleanroom Vault"],
+    b1Pool:["Gold Bullion Vault","Backup Generator Room","Sub-Zero Coolant Bay","Deep Data Bunker","Armored Deposit Hall","EMP Shielding Chamber"],
+    f2Pool:["CEO Penthouse","Cybernetics Lab","Satellite Uplink","Firewall Control","AI Core Chamber","Executive Lounge","Drone Bay"]
+  },
+  Asylum: {
+    r1:"Admissions Lobby", r2:"Ward A Corridor", r3:"Central Stairwell (1F)", b1:"Morgue Stairs (B1)", f2:"Psychiatric Wing (2F)",
+    f1Pool:["padded Cell 101","Padded Cell 102","Nurses' Station","Electro-Shock Room","Cafeteria","Hydrotherapy Bath","Orderly Locker","Isolation Cell","Pharmacy Dispensary","Dayroom","Security Office","East Ward Hall","West Ward Hall","Chapel Alcove","Linen Supply"],
+    b1Pool:["Autopsy Theater","Cold Body Lockers","Boiler Furnace","Crematorium","Basement Pipework","Soiled Laundry"],
+    f2Pool:["Doctor's Office","Lobotomy Suite","Group Therapy Room","High-Risk Cell 201","High-Risk Cell 202","Medical Records","Observation Gallery"]
+  },
+  Penitentiary: {
+    r1:"Sallyport Entry", r2:"Cellblock A Catwalk", r3:"Guard Tower Stairs", b1:"Solitary Stairs (B1)", f2:"Upper Tier Gallery (2F)",
+    f1Pool:["Cell A-1","Cell A-2","Warden's Office","Guard Control Room","Mess Hall","Prison Kitchen","Shower Block","Visitation Booths","Cell B-1","Cell B-2","Armory","Infirmary","Yard Gatehouse","Workshop","Laundry Press"],
+    b1Pool:["The Hole (Solitary)","Execution Chamber","Generator Vault","Sewer Drain","Evidence Lockup","Coal Chute"],
+    f2Pool:["Tier 2 Cell C-1","Tier 2 Cell C-2","Sniper Overwatch","Chaplain's Office","Parole Hearing Room","Law Library","Riot Gear Locker"]
+  },
+  Campground: {
+    r1:"Ranger Gatehouse", r2:"Central Campfire Pit", r3:"Lookout Ridge Trail", b1:"Root Cellar Steps (B1)", f2:"Watchtower Deck (2F)",
+    f1Pool:[" Birch Cabin","Pine Cabin","Mess Tent"," Tackle & Boat Shed","Generator Shack","Lake Pier","outhouse Latrine","First-Aid Cabin","West Forest Trail","East Forest Trail","Picnic Pavilion","Archery Range","Firewood Shed","Bunkhouse A","Bunkhouse B"],
+    b1Pool:["Smuggler's Cave","Underground Spring","Storm Bunker","Old Mine Shaft","Icehouse Cellar","Bear Den"],
+    f2Pool:["Fire Watchtower","Canopy Treehouse","Attic Loft","Radio Relay Hut","Ridge Overlook","Hunter's Blind","Supply Loft"]
+  },
+  Catacombs: {
+    r1:"Sunken Archway", r2:"Hall of Skulls", r3:"Spiral Descent (1F)", b1:"Abyssal Steps (B1)", f2:"Upper Reliquary (2F)",
+    f1Pool:["Ossuary Chamber","Altar of Ashes","Plague Mass Grave","Weeping Statue Hall","Catacomb Crossroads","Ritual Blood Font","Collapsed Tunnel","Monk's Scriptorium","Torchlit Gallery","Bone Throne Room","Crypt of Knights","Cursed Sarcophagus","Incense Sanctum","Whispering Nave","Sealed Tomb"],
+    b1Pool:["Drowned Catacomb","Subterranean Lake","Ancient Sacrificial Pit","Catacomb Deep Vault","Forgotten Ossuary","Labyrinth Core"],
+    f2Pool:["High Choir Loft","Bellfry Ruins","Relic Treasury","High Priest's Tomb","Stained Glass Ruin","Bone Chandelier Hall","Vigil Balcony"]
+  },
+  Cemetery: {
+    r1:"Wrought-Iron Gate", r2:"Cobblestone Path", r3:"Mausoleum Steps (1F)", b1:"Family Crypt Hub (B1)", f2:"Chapel Belltower (2F)",
+    f1Pool:["Weeping Angel Plot","Mortuary Chapel","Caretaker's Shed","Old Plague Pit","Urn Columbaria","Blackwood Mausoleum","Victorian Grave Plot","Sunken Headstones","Cremation Garden","East Iron Fence","West柳 Grove","Sexton's Tool Shed","Fresh Open Grave","Memorial Obelisk","Yew Tree Clearing"],
+    b1Pool:["Blackwood Tomb","Flooded Burial Vault","Bone Ossuary","Underground Coffin Hall","Embalming Cellar","Catacomb Passage"],
+    f2Pool:["Belltower Loft","Organ Gallery","Chapel Attic","Caretaker's Quarters","Rafters Overlook","Vigil Alcove","Choir Balcony"]
+  }
+};
+
+function generateMultiFloorHouse(sizeKey, numBackDoors, mapArchKey) {
+  var archKey = mapArchKey || selectedMapArchetype || "Suburban";
+  var archCfg = MAP_ARCHETYPES[archKey] || MAP_ARCHETYPES.Suburban;
   var baseInteriorCount = HOUSE_SIZES[sizeKey].baseRooms;
   var targetInteriorCount = baseInteriorCount + (Math.floor(Math.random() * 3) - 1);
-  var floorsPresent = [1], archLabel = "1-Story Ranch (1F)";
-  if (sizeKey === "Small") {
-    if (Math.random() < 0.65) { floorsPresent = [-1, 1]; archLabel = "Split-Level Cellar Home (B1 + 1F)"; }
+  var floorsPresent = [1], archLabel = archCfg.label + " (" + sizeKey + ")";
+
+  if (archKey === "Cemetery" || archKey === "Catacombs") {
+    floorsPresent = [-1, 1];
+  } else if (archKey === "Vault" || archKey === "Asylum") {
+    floorsPresent = sizeKey === "Small" ? [-1, 1] : [-1, 1, 2];
+  } else if (sizeKey === "Small") {
+    if (Math.random() < 0.65) floorsPresent = [-1, 1];
   } else {
     var roll = Math.random();
-    if (roll < 0.22) { floorsPresent = [1]; archLabel = "Sprawling 1-Story Estate (1F)"; }
-    else if (roll < 0.48) { floorsPresent = [-1, 1]; archLabel = "Cellar Estate (B1 + 1F)"; }
-    else if (roll < 0.74) { floorsPresent = [1, 2]; archLabel = "Classic 2-Story Manor (1F + 2F)"; }
-    else { floorsPresent = [-1, 1, 2]; archLabel = "3-Floor Grand Estate (B1 + 1F + 2F)"; }
+    if (roll < 0.25) floorsPresent = [1];
+    else if (roll < 0.55) floorsPresent = [-1, 1];
+    else if (roll < 0.80) floorsPresent = [1, 2];
+    else floorsPresent = [-1, 1, 2];
   }
   var hasB1 = floorsPresent.indexOf(-1) !== -1, has2F = floorsPresent.indexOf(2) !== -1;
+  var customNames = ARCHETYPE_ROOM_NAMES[archKey] || null;
 
   var blueprint = [
     { id:"r0", floor:1, x:3, y:4, name:"The Van (Base)", zone:"van", art:"van", hideMod:99, hideSpot:"Locked Truck", tags:["Van","Exterior"], discovered:true, neighbors:["r1","y_front","y_back"] },
@@ -338,33 +394,33 @@ function generateMultiFloorHouse(sizeKey, numBackDoors) {
   ];
 
   var interiorNodes = [
-    { id:"r1", floor:1, x:3, y:3, name:"The Foyer", zone:"zone-hall", art:"foyer", hideMod:2, hideSpot:"Coat Rack", tags:["Mirror"], discovered:true, neighbors:["r0","r2"] },
-    { id:"r2", floor:1, x:3, y:2, name:"Main Hallway", zone:"zone-hall", art:"hall", hideMod:0, hideSpot:"Exposed Hall", tags:["Corridor"], discovered:false, neighbors:["r1","r3"] },
-    { id:"r3", floor:1, x:3, y:1, name:(hasB1||has2F)?"Central Stairwell (1F)":"North Hallway", zone:"zone-hall", art:(hasB1||has2F)?"stairs":"hall", hideMod:2, hideSpot:"Under Stairs", tags:(hasB1||has2F)?["Stairs","Corridor"]:["Corridor"], discovered:false, neighbors:["r2"] }
+    { id:"r1", floor:1, x:3, y:3, name:customNames?customNames.r1:"The Foyer", zone:"zone-hall", art:"foyer", hideMod:2, hideSpot:"Entry Cover", tags:["Mirror"], discovered:true, neighbors:["r0","r2"] },
+    { id:"r2", floor:1, x:3, y:2, name:customNames?customNames.r2:"Main Hallway", zone:"zone-hall", art:"hall", hideMod:0, hideSpot:"Exposed Path", tags:archKey==="Campground"?["Corridor","Campfire"]:["Corridor"], discovered:false, neighbors:["r1","r3"] },
+    { id:"r3", floor:1, x:3, y:1, name:customNames?customNames.r3:((hasB1||has2F)?"Central Stairwell (1F)":"North Hallway"), zone:"zone-hall", art:(hasB1||has2F)?"stairs":"hall", hideMod:2, hideSpot:"Under Steps", tags:(hasB1||has2F)?["Stairs","Corridor"]:["Corridor"], discovered:false, neighbors:["r2"] }
   ];
 
   if (hasB1) {
-    interiorNodes.push({ id:"r_b1_hub", floor:-1, x:3, y:2, name:"Cellar Stairs (B1)", zone:"zone-hall", art:"stairs", hideMod:2, hideSpot:"Under Steps", tags:["Stairs","Corridor","Cold"], discovered:false, neighbors:["r3"] });
+    interiorNodes.push({ id:"r_b1_hub", floor:-1, x:3, y:2, name:customNames?customNames.b1:"Cellar Stairs (B1)", zone:"zone-hall", art:"stairs", hideMod:2, hideSpot:"Under Steps", tags:["Stairs","Corridor","Cold"], discovered:false, neighbors:["r3"] });
     interiorNodes[2].neighbors.push("r_b1_hub");
   }
   if (has2F) {
-    interiorNodes.push({ id:"r_2f_hub", floor:2, x:3, y:2, name:"Upper Landing (2F)", zone:"zone-hall", art:"stairs", hideMod:0, hideSpot:"Banister", tags:["Stairs","Corridor"], discovered:false, neighbors:["r3"] });
+    interiorNodes.push({ id:"r_2f_hub", floor:2, x:3, y:2, name:customNames?customNames.f2:"Upper Landing (2F)", zone:"zone-hall", art:"stairs", hideMod:0, hideSpot:"Banister", tags:["Stairs","Corridor"], discovered:false, neighbors:["r3"] });
     interiorNodes[2].neighbors.push("r_2f_hub");
   }
 
   var f1Pool = [
-    { x:2, y:2, from:"r2", name:"Living Room", zone:"zone-living", art:"living", hideMod:2, hideSpot:"Behind Sofa", tags:["TV"] },
+    { x:2, y:2, from:"r2", name:"Living Room", zone:"zone-living", art:"living", hideMod:2, hideSpot:"Behind Sofa", tags:["TV","BellCandidate"] },
     { x:4, y:2, from:"r2", name:"Dining Room", zone:"zone-living", art:"dining", hideMod:2, hideSpot:"Under Table", tags:["Clutter"] },
     { x:2, y:1, from:"r3", name:"Kitchen", zone:"zone-service", art:"kitchen", hideMod:2, hideSpot:"Island Counter", tags:["Clutter"], backDoorCandidate:true },
     { x:4, y:3, from:"r1", name:"Home Office", zone:"zone-living", art:"office", hideMod:2, hideSpot:"Under Desk", tags:["PC"] },
     { x:1, y:2, fromCoord:[2,2], name:"West Corridor", zone:"zone-hall", art:"hall", hideMod:0, hideSpot:"Exposed Hall", tags:["Corridor"] },
-    { x:1, y:1, fromCoord:[2,1], name:"Garage", zone:"zone-utility", art:"garage", hideMod:4, hideSpot:"Behind Car", tags:["Closet","FuseCandidate"], backDoorCandidate:true },
-    { x:4, y:1, from:"r3", name:"Sunroom", zone:"zone-living", art:"sunroom", hideMod:2, hideSpot:"Wicker Chairs", tags:["Mirror"], backDoorCandidate:true },
+    { x:1, y:1, fromCoord:[2,1], name:"Garage", zone:"zone-utility", art:"garage", hideMod:4, hideSpot:"Supply Locker", tags:["Closet","FuseCandidate"], backDoorCandidate:true },
+    { x:4, y:1, from:"r3", name:"Sunroom", zone:"zone-living", art:"sunroom", hideMod:2, hideSpot:"Stone Pillar", tags:["Mirror"], backDoorCandidate:true },
     { x:5, y:2, fromCoord:[4,2], name:"East Corridor", zone:"zone-hall", art:"hall", hideMod:0, hideSpot:"Exposed Hall", tags:["Corridor"] },
     { x:5, y:1, fromCoord:[4,1], name:"Conservatory", zone:"zone-living", art:"sunroom", hideMod:2, hideSpot:"Planter Boxes", tags:["Clutter"], backDoorCandidate:true },
     { x:2, y:3, fromCoord:[2,2], name:"Guest Parlor", zone:"zone-living", art:"living", hideMod:2, hideSpot:"Armchairs", tags:["Mirror"] },
-    { x:5, y:3, fromCoord:[5,2], name:"Downstairs Bath", zone:"zone-service", art:"bath", hideMod:2, hideSpot:"Shower Curtain", tags:["Mirror"] },
-    { x:1, y:3, fromCoord:[1,2], name:"Mudroom", zone:"zone-utility", art:"utility", hideMod:4, hideSpot:"Coat Locker", tags:["Closet","FuseCandidate"], backDoorCandidate:true },
+    { x:5, y:3, fromCoord:[5,2], name:"Downstairs Bath", zone:"zone-service", art:"bath", hideMod:2, hideSpot:"Stall Door", tags:["Mirror"] },
+    { x:1, y:3, fromCoord:[1,2], name:"Mudroom", zone:"zone-utility", art:"utility", hideMod:4, hideSpot:"Heavy Locker", tags:["Closet","FuseCandidate"], backDoorCandidate:true },
     { x:6, y:2, fromCoord:[5,2], name:"Master Suite (1F)", zone:"zone-bed", art:"bed", hideMod:4, hideSpot:"Walk-in Closet", tags:["Closet","Mirror"] },
     { x:6, y:1, fromCoord:[6,2], name:"Nursery Wing", zone:"zone-bed", art:"bed", hideMod:2, hideSpot:"Behind Crib", tags:["Clutter"] },
     { x:6, y:3, fromCoord:[5,3], name:"Utility Pantry", zone:"zone-utility", art:"utility", hideMod:4, hideSpot:"Metal Locker", tags:["Closet","FuseCandidate"] }
@@ -387,6 +443,12 @@ function generateMultiFloorHouse(sizeKey, numBackDoors) {
     { x:2, y:3, fromCoord:[2,2], name:"Grand Library", zone:"zone-living", art:"office", hideMod:2, hideSpot:"Tall Bookshelves", tags:["Clutter"] }
   ];
 
+  if (customNames) {
+    f1Pool.forEach(function(rm, i) { if (customNames.f1Pool[i]) rm.name = customNames.f1Pool[i]; });
+    b1Pool.forEach(function(rm, i) { if (customNames.b1Pool[i]) rm.name = customNames.b1Pool[i]; });
+    f2Pool.forEach(function(rm, i) { if (customNames.f2Pool[i]) rm.name = customNames.f2Pool[i]; });
+  }
+
   var nextId = 10;
   function tryAddFromPool(pool, flNum) {
     if (pool.length === 0) return false;
@@ -395,7 +457,13 @@ function generateMultiFloorHouse(sizeKey, numBackDoors) {
       var fp = interiorNodes.find(function(n) { return n.floor === flNum && n.x === s.fromCoord[0] && n.y === s.fromCoord[1]; });
       parentId = fp ? fp.id : (flNum === 1 ? "r2" : (flNum === -1 ? "r_b1_hub" : "r_2f_hub"));
     }
-    var rmObj = { id:newId, floor:flNum, x:s.x, y:s.y, name:s.name, zone:s.zone, art:s.art, hideMod:s.hideMod, hideSpot:s.hideSpot, tags:s.tags.slice(), backDoorCandidate:s.backDoorCandidate||false, discovered:false, neighbors:[parentId] };
+    var isSecLocked = (archCfg.securityRate > 0 && s.zone !== "zone-hall" && Math.random() < archCfg.securityRate);
+    var rmObj = {
+      id:newId, floor:flNum, x:s.x, y:s.y, name:s.name, zone:s.zone, art:s.art,
+      hideMod:s.hideMod, hideSpot:s.hideSpot, tags:s.tags.slice(),
+      securityLocked:isSecLocked, securityHacked:false,
+      backDoorCandidate:s.backDoorCandidate||false, discovered:false, neighbors:[parentId]
+    };
     var pNode = interiorNodes.find(function(n) { return n.id === parentId; });
     if (pNode && pNode.neighbors.indexOf(newId) === -1) pNode.neighbors.push(newId);
     interiorNodes.forEach(function(other) {
@@ -420,6 +488,14 @@ function generateMultiFloorHouse(sizeKey, numBackDoors) {
     else if (has2F && f2Pool.length > 0) tryAddFromPool(f2Pool, 2);
   }
 
+  // Ensure Vault/Asylum always has at least 2 security-locked rooms
+  if (archCfg.securityRate > 0) {
+    var secRooms = interiorNodes.filter(function(n) { return n.securityLocked; });
+    if (secRooms.length < 2) {
+      interiorNodes.slice(-3).forEach(function(n) { if (n.id !== "r1" && n.id !== "r2") n.securityLocked = true; });
+    }
+  }
+
   var allRooms = blueprint.concat(interiorNodes);
   var backCandidates = allRooms.filter(function(b) { return b.floor === 1 && b.backDoorCandidate; });
   var backYard = allRooms.find(function(b) { return b.id === "y_back"; });
@@ -429,7 +505,7 @@ function generateMultiFloorHouse(sizeKey, numBackDoors) {
     if (bRoom.neighbors.indexOf("y_back") === -1) bRoom.neighbors.push("y_back");
     if (backYard.neighbors.indexOf(bRoom.id) === -1) backYard.neighbors.push(bRoom.id);
   }
-  return { rooms:allRooms, floorsPresent:floorsPresent, archLabel:archLabel, interiorCount:interiorNodes.length };
+  return { rooms:allRooms, floorsPresent:floorsPresent, archLabel:archLabel, archKey:archKey, interiorCount:interiorNodes.length };
 }
 
 /* ============================================================================
@@ -451,6 +527,7 @@ function sanitizeGameStateForSync() {
       selectedMode: selectedMode,
       selectedDifficulty: selectedDifficulty,
       selectedHouseSize: selectedHouseSize,
+      selectedMapArchetype: selectedMapArchetype,
       selectedClasses: selectedClasses,
       selectedInternCount: selectedInternCount,
       cash: META.cash,
@@ -465,7 +542,7 @@ function sanitizeGameStateForSync() {
 }
 
 function getTopicBase(code) {
-  return "spectral_proto_v99/" + (code || hostRoomCode).toUpperCase();
+  return "spectral_proto_v100/" + (code || hostRoomCode).toUpperCase();
 }
 
 function initHostPeer() {
@@ -579,7 +656,7 @@ function broadcastStateToPhones() {
   try { localStorage.setItem("SPECTRAL_LIVE_STATE", JSON.stringify(cleanG)); } catch (e) {}
 }
 
-// v9.9: 4-State Cycle: 0 (Unchecked ☐) -> 1 (Confirmed ☑) -> 2 (Unsure ❓) -> -1 (Ruled Out ❌) -> 0
+// 4-State Cycle: 0 (Unchecked ☐) -> 1 (Confirmed ☑) -> 2 (Unsure ❓) -> -1 (Ruled Out ❌) -> 0
 function cycleQuadState(obj, key) {
   var cur = getQuadStateVal(obj, key);
   obj[key] = (cur === 0) ? 1 : (cur === 1 ? 2 : (cur === 2 ? -1 : 0));
@@ -595,23 +672,15 @@ function getQuadStateVal(obj, key) {
 
 function handleRemotePhoneCommand(cmd) {
   if (!cmd) return;
-  // Deduplicate identical command IDs to prevent double-execution over MQTT + WebRTC
   if (cmd.cmdId) {
     if (processedCmdIds[cmd.cmdId]) return;
     processedCmdIds[cmd.cmdId] = true;
   }
 
   var act = cmd.action;
-
-  // Lobby & Post-Match Rematch Commands (work even when G.gameOver is true!)
-  if (act === "m-set-diff") {
-    selectedDifficulty = cmd.diff || "Normal";
-    renderLobbyModal(); broadcastStateToPhones(); return;
-  }
-  if (act === "m-set-size") {
-    selectedHouseSize = cmd.size || "Medium";
-    renderLobbyModal(); broadcastStateToPhones(); return;
-  }
+  if (act === "m-set-diff") { selectedDifficulty = cmd.diff || "Normal"; renderLobbyModal(); broadcastStateToPhones(); return; }
+  if (act === "m-set-size") { selectedHouseSize = cmd.size || "Medium"; renderLobbyModal(); broadcastStateToPhones(); return; }
+  if (act === "m-set-map") { selectedMapArchetype = cmd.map || "Suburban"; renderLobbyModal(); broadcastStateToPhones(); return; }
   if (act === "m-toggle-spec") {
     var sIdx = cmd.idx;
     if (META.unlocked[sIdx]) {
@@ -648,10 +717,12 @@ function handleRemotePhoneCommand(cmd) {
   if (act === "select-char") { renderAll(); return; }
   else if (act === "move-room") clickRoomTile(cmd.room);
   else if (act === "open-door") openDoorWithoutMoving(cmd.room);
+  else if (act === "hack-door") hackSecurityDoorAction(cmd.room);
   else if (act === "use-stairs") traverseStairsTo(cmd.target);
   else if (act === "search-room") searchCurrentRoom();
   else if (act === "verify-relic") verifyHeirloomResonance();
   else if (act === "disturb-corpse") disturbCorpseAction();
+  else if (act === "toll-bell") tollChapelBellAction();
   else if (act === "close-door") toggleCloseDoor();
   else if (act === "enter-hide") enterHidingSpot();
   else if (act === "hold-breath") holdBreathAction();
@@ -688,14 +759,13 @@ const myPhoneId = "pda_" + Math.floor(10000 + Math.random() * 90000);
 
 function sendPhoneCmd(payload) {
   var now = Date.now();
-  if (now - lastPhoneTapTime < 220) return; // Hardware debounce against mobile double-tap
+  if (now - lastPhoneTapTime < 220) return;
   lastPhoneTapTime = now;
 
   payload.charIdx = isMobileClient ? mobileCharIdx : (G.selectedChar || 0);
   payload.phoneId = myPhoneId;
   payload.cmdId = myPhoneId + "_" + now + "_" + Math.floor(Math.random() * 1000);
 
-  // Strictly mutually exclusive transport so commands are never sent twice!
   if (clientConn && clientConn.open) {
     try { clientConn.send(payload); return; } catch (e) {}
   }
@@ -727,28 +797,6 @@ window.addEventListener("storage", function(e) {
 function ensureLobbyDomUpgraded() {
   var gridEl = document.getElementById("lobby-char-grid");
   if (!gridEl) return;
-  if (!document.getElementById("lobby-intern-controls")) {
-    var bar = document.createElement("div");
-    bar.style.cssText = "display:flex; justify-content:space-between; align-items:center; margin:6px 0;";
-    bar.innerHTML =
-      '<div style="display:flex; gap:8px; align-items:center;"><span id="lobby-cash-badge" class="hud-pill" style="border-color:var(--green); color:var(--green); font-size:12px;">💵 $0</span><button type="button" class="btn-amber" id="btn-reset-meta">🔄 Reset Save</button></div>' +
-      '<div id="lobby-intern-controls" style="display:flex; align-items:center; gap:6px;"></div>';
-    gridEl.parentNode.insertBefore(bar, gridEl);
-    document.getElementById("btn-reset-meta").addEventListener("click", function() {
-      META = getDefaultMetaSave();
-      selectedClasses = [false,false,false,false,false,false,false,false,false,false,false,false];
-      selectedInternCount = 4;
-      saveMetaSave();
-      renderLobbyModal();
-    });
-  }
-  if (!document.getElementById("lobby-van-shop")) {
-    var shopWrap = document.createElement("div");
-    shopWrap.innerHTML =
-      '<div style="font-weight:700; font-size:11px; color:var(--amber); margin-top:8px;">5. VAN EQUIPMENT TIER SHOP &amp; EXTRA TOOLS (⚠️ T2/T3 UPGRADES &amp; EXTRAS LOST ON DEFEAT!):</div>' +
-      '<div id="lobby-van-shop" class="van-shop-grid"></div>';
-    gridEl.parentNode.insertBefore(shopWrap, gridEl.nextSibling);
-  }
   var jBtn = document.getElementById("tab-btn-journal");
   if (jBtn) jBtn.textContent = "3. GHOSTS (19)";
 }
@@ -766,8 +814,8 @@ function renderLobbyModal() {
   if (cashEl) cashEl.textContent = "💵 $" + META.cash;
 
   document.getElementById("lobby-mode-row").innerHTML = [
-    { key:"OneShot", title:"Single Contract (One-Shot)", desc:"Standalone investigation on any house size. Earn 💵 Cash & unlock Specialist Challenges." },
-    { key:"Campaign", title:"3-Mission Campaign: The Cursed Heirloom Trail", desc:"Chain 3 escalating houses (Small -> Medium -> Large Boss Manor)." }
+    { key:"OneShot", title:"Single Contract (One-Shot)", desc:"Standalone investigation on any of the 7 Map Locations & 3 Scales." },
+    { key:"Campaign", title:"3-Mission Campaign: The Cursed Heirloom Trail", desc:"Travel across 3 different Map Locations (Small -> Medium -> Large Boss)." }
   ].map(function(m) {
     var sel = (selectedMode === m.key);
     return '<div class="mode-card '+(sel?'selected':'')+'" data-action="select-mode" data-mode="'+m.key+'"><div style="font-weight:800; font-size:12px; color:var(--purple);">'+m.title+'</div><div style="font-size:10px; color:var(--dim);">'+m.desc+'</div></div>';
@@ -777,6 +825,14 @@ function renderLobbyModal() {
     var d = DIFFICULTIES[dKey], sel = (selectedDifficulty === dKey);
     return '<div class="diff-card '+(sel?'selected':'')+'" data-action="select-diff" data-diff="'+dKey+'"><div style="font-weight:800; font-size:12px; color:'+(dKey==='Hard'?'var(--red)':'var(--amber)')+';">'+d.name+'</div><div style="font-size:10px; color:var(--dim);">'+d.desc+'</div></div>';
   }).join("");
+
+  var mapRowEl = document.getElementById("lobby-map-row");
+  if (mapRowEl) {
+    mapRowEl.innerHTML = Object.keys(MAP_ARCHETYPES).map(function(mKey) {
+      var m = MAP_ARCHETYPES[mKey], sel = (selectedMapArchetype === mKey);
+      return '<div class="map-card '+(sel?'selected':'')+'" data-action="select-map" data-map="'+mKey+'"><div style="font-weight:800; font-size:11px; color:var(--cyan);">'+m.label+'</div><div style="font-size:9px; color:var(--dim); margin-top:2px;">'+m.ruleText+'</div></div>';
+    }).join("");
+  }
 
   document.getElementById("lobby-size-section").style.display = (selectedMode === "OneShot") ? "block" : "none";
   document.getElementById("lobby-size-row").innerHTML = Object.keys(HOUSE_SIZES).map(function(sKey) {
@@ -852,8 +908,10 @@ function launchFromLobby() {
     var mGhost = mutCandidates[Math.floor(Math.random() * mutCandidates.length)];
     var extraEvs = GHOST_DB[mGhost].ev.filter(function(e) { return GHOST_DB[pGhost].ev.indexOf(e) === -1; });
     var dKeys = Object.keys(DEATH_DB);
+    var allMaps = Object.keys(MAP_ARCHETYPES).sort(function() { return Math.random() - 0.5; });
     CAMP = {
       active:true, missionNum:1, reserveLives:diffCfg.reserveLives,
+      mapTrail:[selectedMapArchetype, allMaps[0] === selectedMapArchetype ? allMaps[1] : allMaps[0], allMaps[2]],
       usedClassIndices:selectedClasses.map(function(v,i){return v?i:-1;}).filter(function(i){return i!==-1;}),
       pendingSquad:null, bossPrimary:pGhost, bossMutationGhost:mGhost,
       bossExtraEv:extraEvs.length>0?extraEvs[0]:"Ghost Orbs",
@@ -872,6 +930,14 @@ function getRoomCompassSector(r) {
   return ns + "-" + ew;
 }
 
+function rollWeatherCondition() {
+  var r = Math.random();
+  if (r < 0.35) return { type:"Clear", icon:"🌤️", desc:"Clear Night — Standard visibility and house temperatures." };
+  if (r < 0.60) return { type:"Thunderstorm", icon:"⛈️", desc:"Thunderstorm — Lightning flashes every 2 rounds flicker unshielded lights OFF; +1 MP outdoor rain." };
+  if (r < 0.80) return { type:"Blizzard", icon:"❄️", desc:"Sub-Zero Blizzard — Ambient rooms are colder (+1 dark Sanity drain)." };
+  return { type:"Fog", icon:"🌫️", desc:"Thick Ground Fog — Outdoor Line of Sight capped at 1 adjacent tile." };
+}
+
 function startMission(carryoverPlayers) {
   stopHuntTurnTimer();
   undoSnapshots = {};
@@ -879,11 +945,14 @@ function startMission(carryoverPlayers) {
   var diffCfg = DIFFICULTIES[selectedDifficulty];
   var bonusSan = diffCfg.bonusSanity || 0;
   var sizeKey = CAMP.active ? (CAMP.missionNum === 1 ? "Small" : (CAMP.missionNum === 2 ? "Medium" : "Large")) : selectedHouseSize;
+  var mapArchKey = CAMP.active ? (CAMP.mapTrail[CAMP.missionNum - 1] || "Suburban") : selectedMapArchetype;
+  var archCfg = MAP_ARCHETYPES[mapArchKey] || MAP_ARCHETYPES.Suburban;
   var sizeCfg = HOUSE_SIZES[sizeKey];
   var ghostList = Object.keys(GHOST_DB), deathList = Object.keys(DEATH_DB);
   var isBossMission = (CAMP.active && CAMP.missionNum === 3);
   var pickedGhost = isBossMission ? CAMP.bossPrimary : ghostList[Math.floor(Math.random() * ghostList.length)];
   var pickedDeath = isBossMission ? CAMP.bossDeath : deathList[Math.floor(Math.random() * deathList.length)];
+  var weather = rollWeatherCondition();
 
   var activePlayers = [];
   if (carryoverPlayers) {
@@ -892,7 +961,8 @@ function startMission(carryoverPlayers) {
       pl.isHidden = false; pl.stealthScore = 0;
       pl.holdingBreath = false; pl.breathStreak = 0; pl.breathBonusApplied = 0;
       pl.gaspNextTurn = false; pl.madeNoise = false; pl.turnEnded = false;
-      pl.moroiCursed = false; pl.dogShield = (pl.baseClass === "Houndmaster");
+      pl.moroiCursed = false; pl.hallucinationRoomId = null;
+      pl.dogShield = (pl.baseClass === "Houndmaster");
     });
   } else {
     SPECIALIST_TEMPLATES.forEach(function(tpl, idx) {
@@ -907,7 +977,7 @@ function startMission(carryoverPlayers) {
           upgradeTokens:0, roomId:"r0", spirit:false, isHidden:false, stealthScore:0,
           holdingBreath:false, breathStreak:0, breathBonusApplied:0,
           gaspNextTurn:false, madeNoise:false, turnEnded:false,
-          moroiCursed:false, dogShield:(tpl.name === "Houndmaster"),
+          moroiCursed:false, hallucinationRoomId:null, dogShield:(tpl.name === "Houndmaster"),
           hands:[buildTieredItem(tpl.startHand, sLvl)], belt:beltItem
         });
       }
@@ -921,7 +991,7 @@ function startMission(carryoverPlayers) {
         upgradeTokens:0, roomId:"r0", spirit:false, isHidden:false, stealthScore:0,
         holdingBreath:false, breathStreak:0, breathBonusApplied:0,
         gaspNextTurn:false, madeNoise:false, turnEnded:false,
-        moroiCursed:false, dogShield:false,
+        moroiCursed:false, hallucinationRoomId:null, dogShield:false,
         hands:[], belt:null
       });
     }
@@ -942,6 +1012,7 @@ function startMission(carryoverPlayers) {
   addVanToolCopies("cam", { name:"Night-Vision Cam", desc:"1 AP: Scan Orbs & stops Dark drain.", elec:true, on:true });
   addVanToolCopies("book", { name:"Ghost Writing Book", desc:"Drop on floor: Ghost writes silently.", elec:false, deploy:true, written:false });
   addVanToolCopies("dots", { name:"D.O.T.S. Projector", desc:"Drop on floor: Lasers reveal silhouette.", elec:true, on:true, deploy:true, triggered:false });
+  addVanToolCopies("sensor", { name:"Motion Sensor Pack", desc:"1 AP: Deploy wall sensor in room (alerts when Ghost moves in!).", elec:true, on:true, charges:2, proto:"sensor" });
 
   var suppCount = 1 + ((META.vanExtras && META.vanExtras.supp) ? META.vanExtras.supp : 0);
   for (var sc = 0; sc < suppCount; sc++) {
@@ -956,16 +1027,19 @@ function startMission(carryoverPlayers) {
     vanItems.push({ name:"Sanity Pills", desc:"1 AP: +8 Sanity & cures Moroi Curse (1 use).", elec:false, charges:1 });
   }
 
-  var gen = generateMultiFloorHouse(sizeKey, sizeCfg.backDoors);
+  var gen = generateMultiFloorHouse(sizeKey, sizeCfg.backDoors, mapArchKey);
+  var startGridOn = archCfg.hasGrid ? diffCfg.startBreaker : false;
+
   var rooms = gen.rooms.map(function(bp) {
     return {
       id:bp.id, floor:bp.floor, name:bp.name, x:bp.x, y:bp.y, zone:bp.zone, art:bp.art,
       hideMod:bp.hideMod, hideSpot:bp.hideSpot, tags:bp.tags, discovered:bp.discovered,
       openedByGhost:false,
-      lit:(bp.tags.indexOf("Exterior")!==-1)?true:(bp.id==="r1"&&diffCfg.startBreaker),
-      permLit:false, lightBroken:false,
+      lit:(bp.tags.indexOf("Exterior")!==-1)?true:(bp.id==="r1"&&startGridOn),
+      permLit:false, lightBroken:false, frosted:false, sensorTriggeredThisTurn:false,
+      securityLocked:bp.securityLocked||false, securityHacked:bp.securityHacked||false,
       hasBackDoor:bp.hasBackDoor||false, backDoorUnlocked:bp.backDoorUnlocked||false,
-      hiddenTouch:0, visibleTouch:0, salt:false, ward:false, motionSensor:false,
+      hiddenTouch:0, visibleTouch:0, salt:false, saltDisturbed:false, ward:false, motionSensor:false,
       lureBeacon:false, wedged:false, searched:false,
       envElecOn:false, dirtyWater:false, mirrorUsed:false,
       forensicTrace:false, traceTool:null, traceRevealed:false, traceScanned:false,
@@ -1009,27 +1083,32 @@ function startMission(carryoverPlayers) {
     startForensics[dTraits[0]] = 1;
   }
 
+  var otherGhosts = ghostList.filter(function(g) { return g !== "Mimic"; });
+
   G = {
     difficulty:selectedDifficulty, diffCfg:diffCfg, houseSize:sizeKey, sizeCfg:sizeCfg,
+    mapArchetype:mapArchKey, archCfg:archCfg, weather:weather,
     archLabel:gen.archLabel, floorsPresent:gen.floorsPresent, interiorCount:gen.interiorCount,
     isBossMission:isBossMission, currentFloorView:1, round:1,
-    breakerOn:diffCfg.startBreaker, breakerUpgraded:false,
+    breakerOn:startGridOn, breakerUpgraded:false,
     maxSafeLights:Math.max(2, sizeCfg.baseLights + (Math.floor(Math.random()*3)-1)),
     fuseRoomId:fuseRoom.id, hasBackDoorKey:false, sanityScannedThisRound:false,
     anchorType:anchorType, anchorRoomId:anchorRoom.id, tracesScannedCount:0, corpseLureActive:false,
     huntActive:false, huntTurns:0, huntCooldown:0, huntSecondsRemaining:0, spiritualLeverage:false, sideObjectives:sideObjs,
     banishmentMode:false, ghostBoundRoomId:null, chainIntegrity:0,
     inspectedGhost:"Poltergeist", inspectedDeath:"Poisoned",
-    lockedGhost:"Poltergeist", lockedDeath:"Poisoned", ritualStage:0, smudgeSafe:0, gameOver:false,
-    victoryAchieved:false, lastPayout:0,
+    lockedGhost:"Poltergeist", lockedDeath:"Poisoned", ritualStage:0, smudgeSafe:0, flamesSnuffed:0,
+    mimicPersona:otherGhosts[Math.floor(Math.random() * otherGhosts.length)],
+    gameOver:false, victoryAchieved:false, lastPayout:0,
     secretGhost:pickedGhost, secretDeath:pickedDeath, ghostFavRoomId:chosenFavRoom.id, ghostRoomId:chosenFavRoom.id,
+    prevGhostRoomId:chosenFavRoom.id,
     ghostTrail:[], isAnimatingHunt:false, activeStepRoomId:null,
     obsessionIdx:Math.floor(Math.random() * activePlayers.length),
     foundEv:{}, foundForensics:startForensics, selectedChar:0, rooms:rooms, players:activePlayers, briefingHtml:"", logs:[]
   };
 
   G.briefingHtml = generateMissionBriefingHtml();
-  logMsg("CONTRACT LIVE [" + G.archLabel + " — v9.9]: Charred Crucifixes still count as Wards! Phone Journals are independent per player!", "clue");
+  logMsg("CONTRACT LIVE [" + G.archLabel + " | " + weather.icon + " " + weather.type + "]: " + archCfg.ruleText, "clue");
   renderAll();
   if (!isMobileClient) showBriefingModal();
 }
@@ -1043,7 +1122,7 @@ function generateMissionBriefingHtml() {
   if (CAMP.active) {
     html += '<div style="background:rgba(213,0,249,0.12); border:1px solid var(--purple); padding:8px; border-radius:5px; margin-bottom:8px;"><strong style="color:var(--purple);">🏆 CAMPAIGN MISSION '+CAMP.missionNum+' OF 3 // LIVES: '+CAMP.reserveLives+'</strong><br>'+(CAMP.cluesUnlocked.length>0?CAMP.cluesUnlocked.join("<br>"):'Banish this spirit to earn ⭐ Upgrade Tokens and Boss Clues!')+'</div>';
   }
-  html += '<div style="background:#0b0f18; border:1px solid var(--border); padding:9px; border-radius:5px;"><p>• <strong>Architecture:</strong> '+G.archLabel+' ('+G.interiorCount+' interior rooms).</p><p>• <strong>Activity Report:</strong> '+huntRumor+'</p><p>• <strong>Coroner Lead:</strong> Victim suffered <strong>['+dObj.category+']</strong> trauma. Search rooms (1 MP or 1 AP) or scan with matching tools to uncover the 3 Forensic Traces!</p><p>• <strong>Floor Lead:</strong> Sensors spiked on <strong>'+formatFloorName(favR.floor)+'</strong>.</p></div>';
+  html += '<div style="background:#0b0f18; border:1px solid var(--border); padding:9px; border-radius:5px;"><p>• <strong>Location:</strong> '+G.archLabel+' ('+G.interiorCount+' interior areas) — <em>'+G.archCfg.ruleText+'</em></p><p>• <strong>Weather Forecast:</strong> '+G.weather.icon+' <strong>'+G.weather.type+'</strong> — '+G.weather.desc+'</p><p>• <strong>Activity Report:</strong> '+huntRumor+'</p><p>• <strong>Coroner Lead:</strong> Victim suffered <strong>['+dObj.category+']</strong> trauma. Search rooms (1 MP or 1 AP) or scan with matching tools to uncover the 3 Forensic Traces!</p><p>• <strong>Floor Lead:</strong> Sensors spiked on <strong>'+formatFloorName(favR.floor)+'</strong>.</p></div>';
   return html;
 }
 
@@ -1073,7 +1152,6 @@ function showPostMortemModal(title) {
   document.getElementById("gameover-modal").style.display = "flex";
   renderAll();
 }
-
 /* ============================================================================
    6. PER-CHARACTER FAIR-PLAY UNDO & SIMULTANEOUS "END TURN"
 ============================================================================ */
@@ -1110,15 +1188,28 @@ function togglePlayerEndTurnReady(cIdx) {
 }
 
 /* ============================================================================
-   7. CORE GAMEPLAY HELPERS, LOS FOG OF WAR & ZERO-SPOILER EVIDENCE
+   7. CORE HELPERS, HVAC THERMALS, LIVE PROXIMITY REACTIONS & HACKING
 ============================================================================ */
 function getRoom(id) { return G.rooms.find(function(r) { return r.id === id; }) || G.rooms[0]; }
 function getRoomAt(fl, x, y) { return G.rooms.find(function(r) { return r.floor === fl && r.x === x && r.y === y; }) || null; }
 function curPlayer() { return G.players[G.selectedChar] || G.players[0]; }
 
+function getActiveGhostBehaviorKey() {
+  if (G.secretGhost === "Mimic" && G.mimicPersona) return G.mimicPersona;
+  return G.secretGhost;
+}
+
+function isSecurityDoorBlocking(rA, rB) {
+  if (!rA || !rB || !G.breakerOn) return false;
+  if (rA.securityLocked && !rA.securityHacked && rA.tags.indexOf("Exterior") === -1) return true;
+  if (rB.securityLocked && !rB.securityHacked && rB.tags.indexOf("Exterior") === -1) return true;
+  return false;
+}
+
 function areConnected(rA, rB) {
   if (!rA || !rB || rA.neighbors.indexOf(rB.id) === -1) return false;
   if ((rA.id === "y_back" && rB.hasBackDoor && !rB.backDoorUnlocked) || (rB.id === "y_back" && rA.hasBackDoor && !rA.backDoorUnlocked)) return false;
+  if (isSecurityDoorBlocking(rA, rB)) return false;
   return true;
 }
 
@@ -1160,6 +1251,14 @@ function hasLineOfSight(rA, rB) {
   if (!rA || !rB || rA.floor !== rB.floor) return false;
   if (rA.id === rB.id) return true;
   if (rA.x !== rB.x && rA.y !== rB.y) return false;
+  var dist = Math.abs(rA.x - rB.x) + Math.abs(rA.y - rB.y);
+  if (G.weather && G.weather.type === "Fog" && (rA.tags.indexOf("Exterior") !== -1 || rB.tags.indexOf("Exterior") !== -1 || G.mapArchetype === "Cemetery") && dist > 1) {
+    return false;
+  }
+  // Blackwood Penitentiary Open Atrium Cross-Sightline on 1F/2F
+  if (G.mapArchetype === "Penitentiary" && rA.floor >= 1 && dist <= 4) {
+    if ((rA.y === 2 && rB.y === 2) || (rA.x === 3 && rB.x === 3)) return true;
+  }
   var dx = Math.sign(rB.x - rA.x), dy = Math.sign(rB.y - rA.y), cx = rA.x, cy = rA.y, prev = rA;
   while (cx !== rB.x || cy !== rB.y) {
     cx += dx; cy += dy;
@@ -1188,6 +1287,112 @@ function showDiceToast(text, col) {
 }
 
 function logMsg(text, type) { G.logs.unshift({ text:"[R"+G.round+"] "+text, type:type||"" }); }
+
+function checkMotionSensorTrip(room) {
+  if (!room) return;
+  if (room.salt && !room.saltDisturbed && getActiveGhostBehaviorKey() !== "Wraith") {
+    room.saltDisturbed = true;
+    logMsg("🧂👣 Footprints disturbed the Salt pile in [" + (room.discovered ? room.name : formatFloorName(room.floor)) + "]!", "haunt");
+  }
+  if (room.motionSensor) {
+    room.sensorTriggeredThisTurn = true;
+    playSound("sensor");
+    logMsg("📡 MOTION ALERT: Movement detected in [" + room.name + " (" + formatFloorName(room.floor) + ")]!", "clue");
+  }
+}
+
+function evaluatePlayerHallucinations(p) {
+  if (!p || p.spirit) return;
+  if ((p.sanity / p.maxSanity) > 0.25) {
+    p.hallucinationRoomId = null;
+    return;
+  }
+  var r = getRoom(p.roomId);
+  if (r.tags.indexOf("Exterior") !== -1) return;
+  var roll = Math.random();
+  if (roll < 0.22) {
+    playSound("step");
+    logMsg("👣 Cold footsteps and raspy breathing echo right behind " + p.name + "...", "haunt");
+  } else if (roll < 0.38 && p.hands.some(function(i) { return i.name.indexOf("EMF") !== -1 && i.on; })) {
+    playSound("emf_low");
+    logMsg("📟 EMF Level 3 in " + r.name + "!", "haunt");
+  } else if (roll < 0.52) {
+    var discN = r.neighbors.map(function(id) { return getRoom(id); }).filter(function(nr) { return nr && nr.discovered; });
+    if (discN.length > 0) {
+      p.hallucinationRoomId = discN[Math.floor(Math.random() * discN.length)].id;
+    }
+  }
+}
+
+// v10.0: Live Proximity-Only Ghost Reactions during Player Turns (Zero Spoilers!)
+function triggerLiveProximityReaction(player, actionType) {
+  if (!player || player.spirit || G.huntActive || G.gameOver) return;
+  var pRoom = getRoom(player.roomId), gRoom = getRoom(G.ghostRoomId);
+  if (pRoom.tags.indexOf("Exterior") !== -1) return;
+  var isSame = (pRoom.id === gRoom.id);
+  var isAdj = areConnected(pRoom, gRoom);
+  if (!isSame && !isAdj) return;
+
+  var gKey = getActiveGhostBehaviorKey();
+  var aliveInGhostRoom = G.players.filter(function(pl) { return !pl.spirit && pl.roomId === gRoom.id; }).length;
+  if (gKey === "Shade" && aliveInGhostRoom >= 2) return;
+
+  // Mare Instant Counter-Switch when player flips light ON in its room
+  if (actionType === "lightOn" && isSame && gKey === "Mare" && Math.random() < 0.55) {
+    pRoom.lit = false;
+    G.flamesSnuffed = (G.flamesSnuffed || 0) + 1;
+    playSound("step");
+    logMsg("💡🌑 As soon as the switch was flipped ON in [" + pRoom.name + "], an unseen hand slammed it back OFF!", "haunt");
+    return;
+  }
+
+  if (Math.random() > (isSame ? 0.35 : 0.20)) return;
+
+  var reactRoll = Math.random();
+  if (gKey === "Poltergeist" && gRoom.floorItems.length > 0 && reactRoll < 0.45) {
+    var intN = gRoom.neighbors.map(function(id) { return getRoom(id); }).filter(function(nr) { return nr && nr.discovered && nr.tags.indexOf("Exterior") === -1; });
+    if (intN.length > 0) {
+      var flung = gRoom.floorItems.pop();
+      var destR = intN[Math.floor(Math.random() * intN.length)];
+      destR.floorItems.push(flung);
+      gRoom.visibleTouch += 1;
+      playSound("step");
+      logMsg("💥 [" + flung.name + "] was violently hurled from [" + gRoom.name + "] into [" + destR.name + "]!", "haunt");
+      return;
+    }
+  }
+
+  if (gKey === "Jinn" && G.breakerOn && isSame && reactRoll < 0.35) {
+    var onElec = player.hands.find(function(i) { return i.elec && i.on && !i.silentElec; });
+    if (onElec) {
+      onElec.on = false;
+      playSound("emf_low");
+      logMsg("⚡ An electromagnetic pulse in [" + pRoom.name + "] shorted [" + onElec.name + "] OFF!", "haunt");
+      return;
+    }
+  }
+
+  if (reactRoll < 0.35 && gRoom.lit && !gRoom.permLit && (gKey === "Mare" || gKey === "Onryo" || gKey === "Revenant" || gKey === "Phantom")) {
+    gRoom.lit = false;
+    G.flamesSnuffed = (G.flamesSnuffed || 0) + 1;
+    playSound("step");
+    logMsg("💡 The light in [" + (gRoom.discovered ? gRoom.name : formatFloorName(gRoom.floor)) + "] suddenly flickered out!", "haunt");
+  } else if (reactRoll < 0.70) {
+    gRoom.visibleTouch += 1;
+    checkMotionSensorTrip(gRoom);
+    playSound("step");
+    logMsg("🔊 Something shifted and scraped inside [" + (gRoom.discovered ? gRoom.name : formatFloorName(gRoom.floor)) + "]...", "haunt");
+  } else {
+    var openNeighbors = gRoom.neighbors.map(function(id) { return getRoom(id); }).filter(function(nr) { return nr && nr.discovered && nr.tags.indexOf("Exterior") === -1 && !isDoorClosedBetween(gRoom, nr) && !isDoorBrokenBetween(gRoom, nr); });
+    if (openNeighbors.length > 0) {
+      var targetN = openNeighbors[Math.floor(Math.random() * openNeighbors.length)];
+      gRoom.closedDoors.push(targetN.id);
+      targetN.closedDoors.push(gRoom.id);
+      playSound("step");
+      logMsg("🚪 A doorway connected to [" + targetN.name + "] suddenly slammed SHUT!", "haunt");
+    }
+  }
+}
 
 function completeSideObjective(objId) {
   var obj = G.sideObjectives.find(function(o) { return o.id === objId && !o.done; });
@@ -1256,13 +1461,61 @@ function inspectRoomOnEntry(room, player) {
   return rev;
 }
 
+function hackSecurityDoorAction(targetRoomId) {
+  if (G.gameOver || G.isAnimatingHunt) return;
+  var p = curPlayer(), curR = getRoom(p.roomId), targetR = getRoom(targetRoomId || p.roomId);
+  if (!targetR || p.spirit) return;
+
+  var isAdj = (curR.neighbors.indexOf(targetR.id) !== -1 || curR.id === targetR.id);
+  var inVan = (curR.id === "r0");
+  var hasDeck = (p.baseClass === "Hacker") || p.hands.some(function(i) { return i.name.indexOf("Decryption Deck") !== -1 && i.on; });
+
+  if (!hasDeck && (!p.belt || p.belt.name.indexOf("Keycard") === -1 || p.belt.uses <= 0)) {
+    logMsg("🔐 Requires 🧑‍💻 Hacker, Cyber Decryption Deck, or cutting the Master Breaker OFF to open High-Security Doors!", "haunt");
+    renderAll(); return;
+  }
+  if (!isAdj && !inVan && p.baseClass !== "Hacker") {
+    logMsg("🔐 Must be adjacent or in The Van to hack [" + targetR.name + "]!");
+    renderAll(); return;
+  }
+
+  var apCost = (p.baseClass === "Hacker" && isAdj && !G.huntActive) ? 0 : 1;
+  if (p.ap < apCost) {
+    logMsg("⚠️ Hacking [" + targetR.name + "] requires " + apCost + " AP!");
+    renderAll(); return;
+  }
+
+  clearUndoState();
+  p.ap -= apCost;
+  breakHidingOnAction(p);
+  targetR.securityHacked = true;
+  targetR.discovered = true;
+  targetR.openedByGhost = false;
+  if (targetR.hasBackDoor) targetR.backDoorUnlocked = true;
+  recordChallengeProgress("hack_5", 1);
+  recordChallengeProgress("doors_15", 1);
+  playSound("clue");
+  showDiceToast("🧑‍💻 SECURITY OVERRIDE: " + targetR.name.toUpperCase() + " UNLOCKED!", "var(--cyan)");
+  logMsg("🧑‍💻 HACK COMPLETE: " + p.name + " bypassed the electronic security lock on [" + targetR.name + "] (" + apCost + " AP)!", "clue");
+  renderAll();
+}
+
 function clickRoomTile(roomId) {
   if (G.gameOver || G.isAnimatingHunt) return;
   var p = curPlayer(), curR = getRoom(p.roomId), targetR = getRoom(roomId);
   if (!targetR || (!targetR.discovered && !targetR.openedByGhost) || curR.id === targetR.id) return;
 
+  if (isSecurityDoorBlocking(curR, targetR) && !p.spirit) {
+    if (p.baseClass === "Hacker" || p.hands.some(function(i) { return i.name.indexOf("Decryption Deck") !== -1 && i.on; })) {
+      hackSecurityDoorAction(targetR.id);
+      return;
+    }
+    logMsg("🔐 High-Security Electronic Door to [" + targetR.name + "] is locked! Use 🧑‍💻 Hacker or turn Master Breaker OFF!", "haunt");
+    renderAll(); return;
+  }
+
   if ((curR.id === "y_back" && targetR.hasBackDoor && !targetR.backDoorUnlocked) || (targetR.id === "y_back" && curR.hasBackDoor && !curR.backDoorUnlocked)) {
-    if (G.hasBackDoorKey || p.baseClass === "Detective" || p.baseClass === "Locksmith") {
+    if (G.hasBackDoorKey || p.baseClass === "Detective" || p.baseClass === "Locksmith" || p.baseClass === "Hacker") {
       saveUndoState();
       var bR = curR.hasBackDoor ? curR : targetR;
       bR.backDoorUnlocked = true;
@@ -1270,7 +1523,7 @@ function clickRoomTile(roomId) {
       logMsg("🗝️ " + p.name + " unlocked the Back Door to [" + bR.name + "]!", "clue");
       renderAll(); return;
     } else {
-      logMsg("🔒 Back Door is latched! Find the 🗝️ Spare Key or bring Detective/Locksmith!");
+      logMsg("🔒 Back Door is latched! Find the 🗝️ Spare Key or bring Detective/Locksmith/Hacker!");
       renderAll(); return;
     }
   }
@@ -1278,11 +1531,14 @@ function clickRoomTile(roomId) {
   var bothExt = (curR.tags.indexOf("Exterior") !== -1 && targetR.tags.indexOf("Exterior") !== -1);
   var sameFlAdj = (curR.floor === targetR.floor) && (Math.abs(curR.x - targetR.x) + Math.abs(curR.y - targetR.y) === 1);
   var canMove = p.spirit ? (sameFlAdj || bothExt || areConnected(curR, targetR)) : areConnected(curR, targetR);
-  if (!canMove) { logMsg("No doorway connects " + curR.name + " and " + targetR.name + "!"); renderAll(); return; }
+  if (!canMove) { logMsg("No open doorway connects " + curR.name + " and " + targetR.name + "!"); renderAll(); return; }
   if (G.huntActive && (targetR.tags.indexOf("Exterior") !== -1 || curR.tags.indexOf("Exterior") !== -1) && !bothExt) {
     logMsg("⚠️ Exterior doors are LOCKED during a Hunt!", "hunt"); renderAll(); return;
   }
+
+  var stormCost = (bothExt && G.weather && G.weather.type === "Thunderstorm" && !p.spirit) ? 1 : 0;
   if (!bothExt && p.mp < 1 && p.ap < 1) { logMsg(p.name + " has 0 Walk MP and 0 AP left!"); renderAll(); return; }
+  if (bothExt && stormCost > 0 && p.mp < 1 && p.ap < 1) { logMsg("⛈️ Thunderstorm winds require 1 MP or 1 AP to cross the Yard!"); renderAll(); return; }
 
   var wasUnexplored = !targetR.discovered;
   if (wasUnexplored) {
@@ -1294,13 +1550,14 @@ function clickRoomTile(roomId) {
     saveUndoState();
   }
 
-  var used = bothExt ? "0 AP Yard" : (p.mp >= 1 ? (p.mp -= 1, "1 Walk MP") : (p.ap -= 1, "1 AP"));
+  var used = (bothExt && stormCost === 0) ? "0 AP Yard" : (p.mp >= 1 ? (p.mp -= 1, "1 Walk MP") : (p.ap -= 1, "1 AP"));
   if (!p.spirit && isDoorClosedBetween(curR, targetR)) {
     curR.closedDoors = curR.closedDoors.filter(function(id) { return id !== targetR.id; });
     targetR.closedDoors = targetR.closedDoors.filter(function(id) { return id !== curR.id; });
   }
 
   breakHidingOnAction(p);
+  p.hallucinationRoomId = null;
   p.roomId = targetR.id; G.currentFloorView = targetR.floor;
   playSound("step");
   logMsg(p.icon + " " + p.name + (wasUnexplored ? " stepped through the creaked-open door and discovered [" : " moved to [") + targetR.name + "] (" + used + ").");
@@ -1311,6 +1568,8 @@ function clickRoomTile(roomId) {
     if (targetR.id === G.ghostFavRoomId) rev = true;
     runThermometerCheck(targetR, false, heldThermo);
   }
+  triggerLiveProximityReaction(p, "move");
+  evaluatePlayerHallucinations(p);
   if (rev) clearUndoState();
   renderAll();
 }
@@ -1318,13 +1577,18 @@ function clickRoomTile(roomId) {
 function openDoorWithoutMoving(targetId) {
   if (G.gameOver || G.isAnimatingHunt) return;
   var p = curPlayer(), fromR = getRoom(p.roomId), targetR = getRoom(targetId);
+  if (!targetR) return;
+  if (isSecurityDoorBlocking(fromR, targetR)) {
+    hackSecurityDoorAction(targetId);
+    return;
+  }
   if (targetR.openedByGhost && !targetR.discovered) {
     clickRoomTile(targetId);
     return;
   }
   if (G.huntActive && fromR.tags.indexOf("Exterior") !== -1) { logMsg("⚠️ Exterior doors are LOCKED during a Hunt!"); renderAll(); return; }
   if (fromR.id === "y_back" && targetR.hasBackDoor && !targetR.backDoorUnlocked) {
-    if (G.hasBackDoorKey || p.baseClass === "Detective" || p.baseClass === "Locksmith") { targetR.backDoorUnlocked = true; recordChallengeProgress("doors_15", 1); logMsg("🗝️ Unlatched Back Door!", "clue"); }
+    if (G.hasBackDoorKey || p.baseClass === "Detective" || p.baseClass === "Locksmith" || p.baseClass === "Hacker") { targetR.backDoorUnlocked = true; recordChallengeProgress("doors_15", 1); logMsg("🗝️ Unlatched Back Door!", "clue"); }
     else { logMsg("🔒 Back Door is latched! Needs 🗝️ Spare Key!"); renderAll(); return; }
   }
   if (p.ap < 1) { logMsg("⚠️ Opening a door requires 1 AP!"); renderAll(); return; }
@@ -1342,6 +1606,7 @@ function openDoorWithoutMoving(targetId) {
   var noiseNote = "";
   if (G.huntActive && p.baseClass !== "Locksmith") { p.madeNoise = true; noiseNote = " ⚠️ MADE NOISE (🔊)!"; }
   logMsg("🚪 " + p.name + " opened [" + targetR.name + " (" + formatFloorName(targetR.floor) + ")] (+1 Free Walk MP refunded)!" + noiseNote, G.huntActive ? "hunt" : "haunt");
+  triggerLiveProximityReaction(p, "door");
   renderAll();
 }
 
@@ -1374,6 +1639,8 @@ function searchCurrentRoom() {
     uncoverAnchorInRoom(r);
   }
   if (!found) logMsg("🔍 " + p.name + " searched [" + r.name + "] (" + cost + ")—nothing hidden here.");
+  triggerLiveProximityReaction(p, "search");
+  evaluatePlayerHallucinations(p);
   renderAll();
 }
 
@@ -1386,6 +1653,24 @@ function verifyHeirloomResonance() {
   relic.name = "True Heirloom (Verified)";
   playSound("clue"); showDiceToast("🏺 TRUE ANCHOR HEIRLOOM!", "var(--green)");
   logMsg("🏺 VERIFIED: True spectral anchor!", "ritual");
+  renderAll();
+}
+
+function tollChapelBellAction() {
+  var p = curPlayer(), r = getRoom(p.roomId);
+  if (p.spirit || p.ap < 1) return;
+  clearUndoState();
+  p.ap -= 1;
+  breakHidingOnAction(p);
+  playSound("hunt");
+  var path = findShortestRoomPath(G.ghostRoomId, r.id);
+  var pull = Math.min(2, path.length);
+  for (var i = 0; i < pull; i++) {
+    G.ghostRoomId = path[i];
+    checkMotionSensorTrip(getRoom(G.ghostRoomId));
+  }
+  showDiceToast("🔔 CHAPEL BELL TOLLED! GHOST DRAWN 2 TILES CLOSER!", "var(--amber)");
+  logMsg("🔔 " + p.name + " tolled the iron bell in [" + r.name + "]—its resonance pulled the entity 2 tiles closer!", "haunt");
   renderAll();
 }
 
@@ -1406,6 +1691,7 @@ function disturbCorpseAction() {
   var lungeSteps = Math.min(2, path.length);
   for (var s = 0; s < lungeSteps; s++) {
     G.ghostRoomId = path[s];
+    checkMotionSensorTrip(getRoom(G.ghostRoomId));
   }
   var gNow = getRoom(G.ghostRoomId);
   showDiceToast("🔔 REMAINS DISTURBED! THE GHOST LUNGES 2 TILES TOWARD THE CORPSE!", "var(--purple)");
@@ -1421,6 +1707,10 @@ function toggleCloseDoor() {
   var p = curPlayer(), r = getRoom(p.roomId);
   var cost = (p.baseClass === "Locksmith" && !p.usedFreeDoor) ? 0 : 1;
   if (p.spirit || p.ap < cost || r.tags.indexOf("Exterior") !== -1) return;
+  if ((G.mapArchetype === "Cemetery" || G.mapArchetype === "Campground") && r.zone === "zone-hall" && r.floor === 1) {
+    logMsg("⚠️ Open outdoor trails and grave paths do not have doors to shut!", "haunt");
+    renderAll(); return;
+  }
   var shutAny = false;
   r.neighbors.forEach(function(nId) {
     var nR = getRoom(nId);
@@ -1488,14 +1778,14 @@ function useBeltAction() {
   if (uP.belt.name.indexOf("Insulated Gloves") !== -1 || uP.belt.name.indexOf("Master Lockpick") !== -1) { logMsg(uP.belt.name + " is a passive ability!"); renderAll(); return; }
   saveUndoState(); uP.ap -= 1; uP.belt.uses -= 1; breakHidingOnAction(uP);
   if (uP.belt.name.indexOf("Sanity Pills") !== -1 || uP.belt.name.indexOf("Calm Sedative") !== -1) {
-    uP.sanity = Math.min(uP.maxSanity, uP.sanity + 8); uP.moroiCursed = false;
+    uP.sanity = Math.min(uP.maxSanity, uP.sanity + 8); uP.moroiCursed = false; uP.hallucinationRoomId = null;
     logMsg("💊 " + uP.name + " restored +8 Sanity (and cured any Moroi curse).", "clue");
   }
   else if (uP.belt.name.indexOf("Ritual Chalk") !== -1 || uP.belt.name.indexOf("Blessed Water") !== -1) {
     uR.ward = true; completeSideObjective("obj_ward"); recordChallengeProgress("wards_5", 1);
     logMsg("✡️ Consecrated Arcane Ward in " + uR.name + "!", "ritual");
   }
-  else if (uP.belt.name.indexOf("Salt") !== -1) { uR.salt = true; completeSideObjective("obj_salt"); logMsg("🧂 Poured Salt barrier in " + uR.name + "!", "clue"); }
+  else if (uP.belt.name.indexOf("Salt") !== -1) { uR.salt = true; uR.saltDisturbed = false; completeSideObjective("obj_salt"); logMsg("🧂 Poured Salt barrier in " + uR.name + "!", "clue"); }
   else if (uP.belt.name.indexOf("Work Floodlight") !== -1) { uR.lit = true; uR.permLit = true; uR.lightBroken = false; completeSideObjective("obj_ward"); logMsg("🔦 Deployed Work Floodlight in " + uR.name + " (overrides broken bulbs & breaker)!", "clue"); }
   else if (uP.belt.name.indexOf("Acoustic Decoy Buzzer") !== -1) { uR.lureBeacon = true; logMsg("🔊 Deployed Acoustic Decoy Buzzer in [" + uR.name + "]! It will lure the Ghost during Hunts!", "clue"); }
   else if (uP.belt.name.indexOf("Smudge Bundle") !== -1) { G.smudgeSafe = (G.secretGhost === "Onryo") ? 2 : 1; completeSideObjective("obj_smudge"); logMsg("🌿 Burned Smudge Bundle in [" + uR.name + "]!", "clue"); }
@@ -1503,19 +1793,37 @@ function useBeltAction() {
     uR.wedged = true; toggleCloseDoor();
     logMsg("🔨 Locksmith wedged the doors to [" + uR.name + "] (-2 Ghost Speed & protects doors from shattering)!", "clue");
   }
+  else if (uP.belt.name.indexOf("Keycard") !== -1) {
+    var lockedSec = G.rooms.find(function(rm) { return rm.securityLocked && !rm.securityHacked; });
+    if (lockedSec) {
+      lockedSec.securityHacked = true; lockedSec.discovered = true;
+      recordChallengeProgress("hack_5", 1);
+      logMsg("🧑‍💻 Used Remote Override Keycard to unlock [" + lockedSec.name + "]!", "clue");
+    } else {
+      uR.securityHacked = true;
+      logMsg("🧑‍💻 Used Remote Override Keycard in [" + uR.name + "]!", "clue");
+    }
+  }
   renderAll();
 }
 
 function flipBreakerAction() {
   var bP = curPlayer(), bR = getRoom(bP.roomId);
+  if (!G.archCfg.hasGrid) { logMsg("🏛️ This location has no electrical grid—light Wall Braziers in rooms instead!"); renderAll(); return; }
   if (bR.id !== G.fuseRoomId) return;
   var bCost = (bP.baseClass === "Technician") ? 0 : 1;
   if (bP.ap < bCost) return;
   saveUndoState(); bP.ap -= bCost; G.breakerOn = !G.breakerOn; breakHidingOnAction(bP);
-  if (!G.breakerOn) G.rooms.forEach(function(rm) { if (rm.tags.indexOf("Exterior") === -1 && !rm.permLit) rm.lit = false; });
+  if (!G.breakerOn) {
+    G.rooms.forEach(function(rm) { if (rm.tags.indexOf("Exterior") === -1 && !rm.permLit) rm.lit = false; });
+    logMsg("⚡ Switched Master Breaker OFF! (HVAC Heater off & High-Security Magnetic Locks released!)", "haunt");
+  } else {
+    G.rooms.forEach(function(rm) { rm.frosted = false; });
+    logMsg("⚡ Switched Master Breaker ON! (HVAC Heating active & Magnetic Security Locks engaged!)", "clue");
+  }
   recordChallengeProgress("lights_20", 1);
   recordChallengeProgress("overload_3", 1);
-  playSound("breaker"); logMsg("⚡ Switched Master Breaker " + (G.breakerOn ? "ON" : "OFF") + "!", "haunt");
+  playSound("breaker");
   renderAll();
 }
 
@@ -1655,9 +1963,11 @@ function getEffectiveGhostEvList() {
   return list;
 }
 
-// v9.9: Zero-Spoiler Evidence Conditions! Never hints or reveals why a reading failed.
+// v10.0: Zero-Spoiler Evidence Conditions + HVAC Breaker Thermal Rule
 function canGhostGiveEvidence(evType, room, player) {
   var g = G.secretGhost, aliveInRoom = G.players.filter(function(pl) { return !pl.spirit && pl.roomId === room.id; }).length;
+  // HVAC Breaker Rule: If Breaker is ON, room cannot drop below 0°C unless Ghost is Enraged (Team Sanity <= 50%) or on B1 Basement!
+  if (evType === "Freezing Temps" && G.breakerOn && room.floor !== -1 && getTeamSanity() > 50) return { ok:false };
   if (g === "Poltergeist" && evType === "Ghost Writing" && (room.visibleTouch + room.hiddenTouch) < 2) return { ok:false };
   if (g === "Banshee" && (evType === "Ghost Orbs" || evType === "D.O.T.S.") && getRoom(G.players[G.obsessionIdx].roomId).tags.indexOf("Exterior") !== -1) return { ok:false };
   if (g === "Revenant" && evType === "Freezing Temps" && room.lit) return { ok:false };
@@ -1682,26 +1992,37 @@ function getToolSuccessRate(item) {
   return Math.min(0.98, G.diffCfg.evSuccessRate + (t === 2 ? 0.20 : 0));
 }
 
+// v10.0: Pure Numeric Thermometer Output (Zero Spoilers, Zero Explanations!)
 function runThermometerCheck(room, isActiveScan, usedItem) {
   var p = curPlayer(), rate = getToolSuccessRate(usedItem);
   var traceHandled = false;
   if (isActiveScan) { clearUndoState(); traceHandled = checkForensicScan("Temp", room, p); }
   var evs = getEffectiveGhostEvList();
-  if (room.id === G.ghostFavRoomId && room.discovered) {
+  var isGhostFav = (room.id === G.ghostFavRoomId && room.discovered);
+
+  if (isGhostFav) {
     if (evs.indexOf("Freezing Temps") !== -1) {
       var cond = canGhostGiveEvidence("Freezing Temps", room, p);
       if (cond.ok && Math.random() < (isActiveScan ? Math.max(0.9, rate) : rate)) {
         if (getQuadStateVal(G.foundEv, "Freezing Temps") !== 1) recordChallengeProgress("freezing_5", 1);
         G.foundEv["Freezing Temps"] = 1; playSound("clue");
-        logMsg("🌡️ THERMO [-8°C]: [Freezing Temps Confirmed] in [" + room.name + "]!", "clue");
+        var subZero = -(Math.floor(Math.random() * 6) + 4);
+        logMsg("🌡️ THERMO [" + subZero + "°C]: [Freezing Temps Confirmed] in " + room.name + "!", "clue");
       } else {
-        logMsg("🌡️ THERMO [2°C]: [" + room.name + "] is the Ghost's Favorite Room! No sub-zero drop yet.", "haunt");
+        var chilly = G.breakerOn ? (Math.floor(Math.random() * 4) + 3) : (Math.floor(Math.random() * 2) + 1);
+        logMsg("🌡️ THERMO [" + chilly + "°C] in " + room.name + ".", "haunt");
       }
-    } else logMsg("🌡️ THERMO [3°C]: [" + room.name + "] is the Ghost's Favorite Room!", "clue");
+    } else {
+      var cold = G.breakerOn ? (Math.floor(Math.random() * 4) + 3) : (Math.floor(Math.random() * 3) + 2);
+      logMsg("🌡️ THERMO [" + cold + "°C] in " + room.name + ".", "haunt");
+    }
   } else if (isActiveScan) {
     if (p.baseClass === "Houndmaster" && areConnected(room, getRoom(G.ghostRoomId))) {
-      logMsg("🐕 SCENT TRACKER: K9 growls—the Ghost is in an ADJACENT room!", "haunt");
-    } else if (!traceHandled) logMsg("🌡️ THERMO [19°C]: Normal temp in " + room.name + ".");
+      logMsg("🐕 SCENT TRACKER: K9 growls—movement in an adjacent room!", "haunt");
+    } else if (!traceHandled) {
+      var amb = room.frosted ? (Math.floor(Math.random() * 3) + 2) : (G.weather && G.weather.type === "Blizzard" ? (G.breakerOn ? 11 : 6) : (G.breakerOn ? (Math.floor(Math.random() * 3) + 18) : (Math.floor(Math.random() * 3) + 10)));
+      logMsg("🌡️ THERMO [" + amb + "°C] in " + room.name + ".");
+    }
   }
 }
 
@@ -1709,9 +2030,24 @@ function useHandItem(slotIdx) {
   var p = curPlayer(), r = getRoom(p.roomId), item = p.hands[slotIdx];
   if (!item || p.ap < 1 || G.gameOver || G.isAnimatingHunt) return;
   var evs = getEffectiveGhostEvList(), ghostHere = (r.id === G.ghostRoomId || r.id === G.ghostFavRoomId), rate = getToolSuccessRate(item);
-  var isDet = (item.name.indexOf("Smudge") !== -1 || item.name.indexOf("Thurible") !== -1 || item.name.indexOf("Salt") !== -1 || item.name.indexOf("Pills") !== -1 || item.proto === "sensor" || item.proto === "flare");
+  var isDet = (item.name.indexOf("Smudge") !== -1 || item.name.indexOf("Thurible") !== -1 || item.name.indexOf("Salt") !== -1 || item.name.indexOf("Pills") !== -1 || item.proto === "sensor" || item.proto === "flare" || item.proto === "mic");
   if (isDet) saveUndoState(); else clearUndoState();
   p.ap -= 1; breakHidingOnAction(p);
+
+  if (item.name.indexOf("Decryption Deck") !== -1) {
+    var secTarget = r.neighbors.map(function(id) { return getRoom(id); }).find(function(nr) { return nr && nr.securityLocked && !nr.securityHacked; }) ||
+                    G.rooms.find(function(rm) { return rm.securityLocked && !rm.securityHacked; });
+    if (secTarget) {
+      p.ap += 1;
+      hackSecurityDoorAction(secTarget.id);
+      return;
+    } else {
+      var gDist = findShortestRoomPath(r.id, G.ghostRoomId).length;
+      playSound("emf_low");
+      logMsg("🧑‍💻 DECK TELEMETRY: Network anomaly detected " + gDist + " tile(s) from [" + r.name + "]!", "clue");
+      renderAll(); return;
+    }
+  }
 
   if (item.proto === "defib") {
     var deadP = G.players.find(function(pl) { return pl.spirit; });
@@ -1719,7 +2055,21 @@ function useHandItem(slotIdx) {
     deadP.spirit = false; deadP.sanity = Math.round(deadP.maxSanity * 0.5); deadP.roomId = r.id; p.hands.splice(slotIdx, 1);
     playSound("clue"); logMsg("⚡ Revived " + deadP.name + " at 50% Sanity!", "clue"); renderAll(); return;
   }
-  if (item.proto === "sensor") { r.motionSensor = true; if (--item.charges <= 0) p.hands.splice(slotIdx, 1); logMsg("📡 Motion Sensor deployed in [" + r.name + "]!", "clue"); renderAll(); return; }
+  if (item.proto === "sensor" || item.name.indexOf("Motion Sensor") !== -1) {
+    r.motionSensor = true;
+    recordChallengeProgress("hack_5", 1);
+    if (--item.charges <= 0) p.hands.splice(slotIdx, 1);
+    playSound("sensor");
+    logMsg("📡 Motion Sensor deployed in [" + r.name + "]!", "clue");
+    renderAll(); return;
+  }
+  if (item.proto === "mic") {
+    var dist = findShortestRoomPath(r.id, G.ghostRoomId).length;
+    if (--item.charges <= 0) p.hands.splice(slotIdx, 1);
+    playSound("emf_low");
+    logMsg("🎙️ PARABOLIC MIC: Acoustic reading " + dist + " tile(s) from [" + r.name + "]!", "clue");
+    renderAll(); return;
+  }
   if (item.proto === "flare") { G.smudgeSafe = 1; p.hands.splice(slotIdx, 1); logMsg("🧨 Stun Flare blinded Ghost for 1 Round!", "clue"); renderAll(); return; }
   if (item.proto === "analyzer") {
     if (ghostHere) { var uf = evs.filter(function(e){return getQuadStateVal(G.foundEv, e)!==1;}); var rev = uf.length>0?uf[0]:evs[0]; G.foundEv[rev] = 1; p.hands.splice(slotIdx,1); playSound("emf5"); logMsg("🔬 Analyzer confirmed [" + rev + "]!", "clue"); }
@@ -1739,6 +2089,8 @@ function useHandItem(slotIdx) {
           playSound("emf_low"); logMsg("📟 EMF Level 3 in " + r.name + "!", "haunt");
         }
       } else { playSound("emf_low"); logMsg("📟 EMF Level 3 in " + r.name + "!", "haunt"); }
+    } else if (r.id === G.prevGhostRoomId) {
+      playSound("emf_low"); logMsg("📟 EMF Level 2 in " + r.name + ".", "haunt");
     } else if (G.secretGhost === "Phantasm" && pSanRatio < 0.65 && !r.lit && !roomHasWard(r) && Math.random() < 0.35) {
       playSound("emf_low"); logMsg("📟 EMF Level 3 in " + r.name + "!", "haunt");
     } else if (!emfTraceHandled) logMsg("📟 EMF 1 in " + r.name + ".");
@@ -1754,7 +2106,7 @@ function useHandItem(slotIdx) {
       if (sc.ok && Math.random() < rate) {
         if (getQuadStateVal(G.foundEv, "Spirit Box") !== 1) recordChallengeProgress("spirit_box_5", 1);
         G.foundEv["Spirit Box"] = 1; playSound("clue");
-        if (G.secretGhost === "Moroi") { p.moroiCursed = true; logMsg("📻🩸 SPIRIT BOX: '...CURSED...' [Confirmed]! (Moroi cursed " + p.name + " with extra Sanity drain until Pills!)", "hunt"); }
+        if (G.secretGhost === "Moroi") { p.moroiCursed = true; logMsg("📻 SPIRIT BOX: '...BEHIND YOU...' [Confirmed]!", "clue"); }
         else logMsg("📻 SPIRIT BOX: '...BEHIND YOU...' [Confirmed]!", "clue");
       } else {
         logMsg("📻 White noise and static in " + r.name + ".");
@@ -1772,6 +2124,12 @@ function useHandItem(slotIdx) {
     } else if (!uvTraceHandled) logMsg("🔦 No Touch Tokens in " + r.name + ".");
   }
   else if (item.name.indexOf("Cam") !== -1) {
+    // Phantom Camera Flash Tell: Teleports Phantom back to Favorite Room
+    if (r.id === G.ghostRoomId && getActiveGhostBehaviorKey() === "Phantom" && G.ghostRoomId !== G.ghostFavRoomId) {
+      G.ghostRoomId = G.ghostFavRoomId;
+      playSound("emf_low");
+      logMsg("📹⚡ Static burst across the viewfinder in " + r.name + "!", "haunt");
+    }
     var hasOrbs = (evs.indexOf("Ghost Orbs") !== -1) || (G.secretGhost === "Mimic");
     if (ghostHere && hasOrbs) {
       var oc = canGhostGiveEvidence("Ghost Orbs", r, p);
@@ -1789,12 +2147,12 @@ function useHandItem(slotIdx) {
     completeSideObjective("obj_smudge"); logMsg("🌿 Burned Incense in " + r.name + "! Ghost blinded (" + G.smudgeSafe + " rnd).", "clue");
   }
   else if (item.name.indexOf("Salt") !== -1) {
-    r.salt = true; if (--item.charges <= 0) p.hands.splice(slotIdx, 1);
+    r.salt = true; r.saltDisturbed = false; if (--item.charges <= 0) p.hands.splice(slotIdx, 1);
     completeSideObjective("obj_salt"); logMsg("🧂 Poured Salt barrier in " + r.name + "!", "clue");
   }
   else if (item.name.indexOf("Pills") !== -1 || item.name.indexOf("Sedative") !== -1) {
     p.sanity = Math.min(p.maxSanity, p.sanity + 8);
-    p.moroiCursed = false;
+    p.moroiCursed = false; p.hallucinationRoomId = null;
     if (--item.charges <= 0) p.hands.splice(slotIdx, 1);
     playSound("clue");
     logMsg("💊 " + p.name + " took Sanity Pills (+8 Sanity & cured any Moroi curse)!", "clue");
@@ -1804,19 +2162,31 @@ function useHandItem(slotIdx) {
     dropItemAction(slotIdx);
     return;
   }
+  triggerLiveProximityReaction(p, "scan");
+  evaluatePlayerHallucinations(p);
   renderAll();
 }
 
 function flipRoomLight() {
-  var lP = curPlayer(), lR = getRoom(lP.roomId), lCost = (lP.baseClass === "Technician") ? 0 : 1;
+  var lP = curPlayer(), lR = getRoom(lP.roomId);
+  var isBrazierMap = !G.archCfg.hasGrid;
+  var lCost = (lP.baseClass === "Technician" && !isBrazierMap) ? 0 : 1;
   if (lP.ap < lCost) return;
-  if (lR.lightBroken && !lR.permLit) {
-    logMsg("💥💡 The light bulb in [" + lR.name + "] was shattered by the Ghost! (Requires Electrician's Work Floodlight or handheld light!)", "hunt");
+  if (lR.lightBroken && !lR.permLit && !isBrazierMap) {
+    logMsg("💥💡 The light bulb in [" + lR.name + "] was shattered! (Requires Work Floodlight or handheld light!)", "hunt");
     renderAll(); return;
   }
-  if (!G.breakerOn && !lR.permLit) { logMsg("Click... Master Breaker is OFF!", "haunt"); renderAll(); return; }
+  if (!G.breakerOn && !lR.permLit && !isBrazierMap) { logMsg("Click... Master Breaker is OFF!", "haunt"); renderAll(); return; }
   saveUndoState(); lP.ap -= lCost; breakHidingOnAction(lP); lR.lit = !lR.lit;
+  if (lR.lit) lR.frosted = false;
   recordChallengeProgress("lights_20", 1);
+
+  if (isBrazierMap) {
+    logMsg("🔥 " + lP.name + (lR.lit ? " lit the Wall Brazier in [" : " snuffed the Brazier in [") + lR.name + "].");
+    if (lR.lit) triggerLiveProximityReaction(lP, "lightOn");
+    renderAll(); return;
+  }
+
   var litCount = G.rooms.filter(function(rm) { return rm.tags.indexOf("Exterior") === -1 && rm.lit && !rm.permLit; }).length;
   if (lR.lit && litCount > G.maxSafeLights) {
     clearUndoState(); G.breakerOn = false;
@@ -1826,9 +2196,13 @@ function flipRoomLight() {
     playSound("breaker");
     showDiceToast("⚡ CIRCUIT OVERLOAD! BREAKER TRIPPED!", "var(--amber)");
     logMsg("⚡ CIRCUIT OVERLOAD! Exceeded safe load (" + G.maxSafeLights + " lights)! Breaker tripped OFF!", "hunt");
-  } else logMsg("💡 Flipped [" + lR.name + "] lights " + (lR.lit ? "ON" : "OFF") + ".");
+  } else {
+    logMsg("💡 Flipped [" + lR.name + "] lights " + (lR.lit ? "ON" : "OFF") + ".");
+    if (lR.lit) triggerLiveProximityReaction(lP, "lightOn");
+  }
   renderAll();
 }
+
 /* ============================================================================
    8. 3-ACT EXORCISM, BINDING BACKLASH, CHAIN INTEGRITY & HUNT ANIMATOR
 ============================================================================ */
@@ -1850,7 +2224,7 @@ function triggerBindingBacklash(r, p) {
     r.lit = false;
     logMsg("⚡💥 BINDING BACKLASH: The chained Ghost shattered the room lights OFF! Flip them back ON for Act II!", "hunt");
   } else if (dKey === "Burned") {
-    if (G.breakerOn && !r.lightBroken) { r.lit = true; logMsg("💡💥 BINDING BACKLASH: Poltergeist surge flipped the room lights ON! Turn them OFF for Act II!", "hunt"); }
+    if ((G.breakerOn || !G.archCfg.hasGrid) && !r.lightBroken) { r.lit = true; logMsg("💡💥 BINDING BACKLASH: Poltergeist surge flared the room lights ON! Turn them OFF for Act II!", "hunt"); }
   } else if (dKey === "Starved" || dKey === "Crushed") {
     r.floorItems.push({ name:"Ectoplasmic Debris", desc:"Pick up to clear floor for Act II!", elec:false });
     logMsg("📦💥 BINDING BACKLASH: The thrashing Ghost hurled [Ectoplasmic Debris] onto the floor! Pick it up so the floor has 0 items for Act II!", "hunt");
@@ -1900,7 +2274,7 @@ function executeExorcismAct() {
       if (illRoll < 7) {
         playSound("hunt"); p.sanity = Math.max(0, p.sanity - 2);
         showDiceToast("🌀 BOUND A MIRROR ILLUSION (" + illRoll + " vs 7)!", "var(--amber)");
-        logMsg("🌀 PHANTASM MIRAGE! Because " + p.name + "'s Sanity is below 50% (and no Ward/Crucifix is laid), they grabbed a laughing illusion (Rolled " + illRoll + " vs 7)! Try again, place a Ward/Crucifix, or take Sanity Pills!", "hunt");
+        logMsg("🌀 MIRROR ILLUSION! Grabbed a flickering mirage (Rolled " + illRoll + " vs 7)! Try again, place a Ward/Crucifix, or restore Sanity!", "hunt");
         renderAll(); return;
       }
     }
@@ -2033,7 +2407,6 @@ function renderUpgradeShop() {
   }).join("");
 }
 
-// v9.9: Tuned Base Stealth (6 + Cover + ClassStealth + 1d6, minus 2 if panic-hiding near Ghost) so Ghosts can genuinely find hidden players!
 function enterHidingSpot() {
   var p = curPlayer(), r = getRoom(p.roomId), gRoom = getRoom(G.ghostRoomId);
   if (p.ap < 1 || p.spirit) return;
@@ -2116,18 +2489,28 @@ function applyProximityEventDrain(gRoom, sameRoomLoss, adjRoomLoss, eventLabel) 
 }
 
 function checkGhostSearchInRoom(room, ghostData) {
-  var victims = G.players.filter(function(p) { return !p.spirit && p.roomId === room.id; });
+  var gKey = getActiveGhostBehaviorKey();
+  var obsPlayer = G.players[G.obsessionIdx];
+  var obsAliveInside = (gKey === "Banshee" && obsPlayer && !obsPlayer.spirit && getRoom(obsPlayer.roomId).tags.indexOf("Exterior") === -1);
+
+  var victims = G.players.filter(function(p) {
+    if (p.spirit || p.roomId !== room.id) return false;
+    if (obsAliveInside && p !== obsPlayer) return false;
+    return true;
+  });
+
   for (var i = 0; i < victims.length; i++) {
     var v = victims[i];
     if (!v.isHidden) {
-      if (room.salt && G.secretGhost !== "Wraith") { room.salt = false; logMsg("🧂 SALT saved exposed " + v.name + " in [" + room.name + "]!", "clue"); return true; }
+      if (room.salt && gKey !== "Wraith") { room.salt = false; logMsg("🧂 SALT saved exposed " + v.name + " in [" + room.name + "]!", "clue"); return true; }
       if (v.dogShield) { v.dogShield = false; logMsg("🐕 GUARD DOG INSTINCT: Houndmaster's K9 barked and blocked the Ghost's Claim attack in [" + room.name + "]!", "clue"); return true; }
       claimPlayer(v, room); return true;
     } else {
       var noiseBonus = v.madeNoise ? 3 : 0;
-      var gp = Math.floor(Math.random()*6)+1 + Math.floor(Math.random()*6)+1 + ghostData.perceptMod + G.diffCfg.perceptBonus + noiseBonus - (G.spiritualLeverage?1:0);
+      var curseBonus = (gKey === "Moroi" && v.moroiCursed) ? 2 : 0;
+      var gp = Math.floor(Math.random()*6)+1 + Math.floor(Math.random()*6)+1 + ghostData.perceptMod + G.diffCfg.perceptBonus + noiseBonus + curseBonus - (G.spiritualLeverage?1:0);
       if (gp >= v.stealthScore) {
-        if (room.salt && G.secretGhost !== "Wraith") { room.salt = false; logMsg("🧂 Ghost spotted " + v.name + " in hiding, but SALT saved them!", "clue"); return true; }
+        if (room.salt && gKey !== "Wraith") { room.salt = false; logMsg("🧂 Ghost spotted " + v.name + " in hiding, but SALT saved them!", "clue"); return true; }
         if (v.dogShield) { v.dogShield = false; logMsg("🐕 GUARD DOG saved " + v.name + " from being dragged out of hiding!", "clue"); return true; }
         logMsg("💀 FOUND IN HIDING! Ghost Perception (" + gp + ") beat " + v.name + "'s Stealth (" + v.stealthScore + ") in [" + room.name + "]!", "hunt");
         claimPlayer(v, room); return true;
@@ -2148,6 +2531,7 @@ function findShortestRoomPath(startId, targetId) {
     for (var i = 0; i < currR.neighbors.length; i++) {
       var nId = currR.neighbors[i], nR = getRoom(nId);
       if (!nR || !nR.discovered || nR.tags.indexOf("Exterior") !== -1 || visited[nId]) continue;
+      if (isSecurityDoorBlocking(currR, nR)) continue;
       var newPath = path.concat([nId]);
       if (nId === targetId) return newPath.slice(1);
       visited[nId] = true;
@@ -2160,34 +2544,62 @@ function findShortestRoomPath(startId, targetId) {
 function getEffectiveGhostHuntSteps(ghostData, isChasing, targetDist) {
   var isMicroHunt = (G.huntActive && !G.banishmentMode);
   var gRoom = getRoom(G.ghostRoomId);
+  var gKey = getActiveGhostBehaviorKey();
   var base = ghostData.speed || 3;
 
-  if (G.secretGhost === "Jinn" && !G.breakerOn) base = 2;
-  if (G.secretGhost === "Hantu") base = (!gRoom.lit || gRoom.floor === -1) ? 4 : 2;
-  if (G.secretGhost === "Moroi" && getTeamSanity() <= 30) base = 4;
-  if (G.secretGhost === "Deogen" && targetDist <= 1) return 1;
+  if (gKey === "Jinn" && !G.breakerOn) base = 2;
+  if (gKey === "Hantu") base = (!gRoom.lit || gRoom.floor === -1 || gRoom.frosted) ? 4 : 2;
+  if (gKey === "Moroi") {
+    var tSan = getTeamSanity();
+    base = tSan <= 30 ? 4 : (tSan <= 50 ? 3 : 2);
+  }
+  if (gKey === "Deogen" && targetDist <= 1) return 1;
 
-  if (!isChasing && G.secretGhost !== "Deogen") {
+  if (!isChasing && gKey !== "Deogen") {
     base = ghostData.patrolSpeed || 2;
   }
   if (isMicroHunt) {
-    if (G.secretGhost === "Revenant" && !isChasing) return 1;
+    if (gKey === "Revenant" && !isChasing) return 1;
     return base >= 4 ? 2 : (G.round % 2 === 0 ? 2 : 1);
   }
   return base;
 }
 
 function executeGhostPreferences(gRoom, ghostData) {
-  var pref = ghostData.pref || "random";
+  var gKey = getActiveGhostBehaviorKey();
+  var pref = GHOST_DB[gKey] ? GHOST_DB[gKey].pref : (ghostData.pref || "random");
   if (pref === "random") {
     var pPool = ["breakerOff", "breakerOn", "lightsOff", "lightsBreak", "doorsClose", "doorsOpen"];
     pref = pPool[Math.floor(Math.random() * pPool.length)];
   }
   var isAngry = (getTeamSanity() <= 65);
-  var mylingMuted = (G.secretGhost === "Myling") && !G.players.some(function(pl) { return pl.roomId === gRoom.id || areConnected(getRoom(pl.roomId), gRoom); });
+  var mylingMuted = (gKey === "Myling") && !G.players.some(function(pl) { return pl.roomId === gRoom.id || areConnected(getRoom(pl.roomId), gRoom); });
+
+  // Goryo Camera-Shy Tell: turns off floor Cam if left alone with doors open
+  if (gKey === "Goryo" && gRoom.closedDoors.length === 0 && !G.players.some(function(pl) { return !pl.spirit && pl.roomId === gRoom.id; })) {
+    var floorCam = gRoom.floorItems.find(function(i) { return i.name.indexOf("Cam") !== -1 && i.on; });
+    if (floorCam) {
+      floorCam.on = false;
+      logMsg("📹 Click... A camera on the floor in [" + gRoom.name + "] was switched OFF!", "haunt");
+      return true;
+    }
+  }
+
+  // Poltergeist Telekinetic Scatter
+  if (gKey === "Poltergeist" && gRoom.floorItems.length > 0 && Math.random() < 0.45) {
+    var intN = gRoom.neighbors.map(function(id) { return getRoom(id); }).filter(function(nr) { return nr && nr.discovered && nr.tags.indexOf("Exterior") === -1; });
+    if (intN.length > 0) {
+      var thrown = gRoom.floorItems.pop();
+      var dest = intN[Math.floor(Math.random() * intN.length)];
+      dest.floorItems.push(thrown);
+      playSound("step");
+      logMsg("💥 [" + thrown.name + "] was flung from [" + gRoom.name + "] into [" + dest.name + "]!", "haunt");
+      return true;
+    }
+  }
 
   if (pref === "breakerOff") {
-    if (G.breakerOn && Math.random() < 0.45) {
+    if (G.breakerOn && G.archCfg.hasGrid && Math.random() < 0.45) {
       G.breakerOn = false;
       G.rooms.forEach(function(rm) { if (rm.tags.indexOf("Exterior") === -1 && !rm.permLit) rm.lit = false; });
       playSound("breaker");
@@ -2196,20 +2608,22 @@ function executeGhostPreferences(gRoom, ghostData) {
       return true;
     } else if (gRoom.lit && !gRoom.permLit) {
       gRoom.lit = false;
-      if (isAngry && G.secretGhost === "Mare" && Math.random() < 0.35) {
+      G.flamesSnuffed = (G.flamesSnuffed || 0) + 1;
+      if (isAngry && gKey === "Mare" && G.archCfg.hasGrid && Math.random() < 0.35) {
         gRoom.lightBroken = true;
         playSound("hunt");
         logMsg("💥💡 SHATTERED BULB! The entity violently shattered the light bulb in [" + gRoom.name + "]!", "hunt");
       } else {
         playSound("step");
-        logMsg("💡 Click... The room light in [" + gRoom.name + "] was switched OFF!", "haunt");
+        logMsg("💡 Click... The light in [" + gRoom.name + "] was extinguished!", "haunt");
       }
       applyProximityEventDrain(gRoom, 2, 0, "Darkness Surge");
       return true;
     }
   } else if (pref === "breakerOn") {
-    if (!G.breakerOn && Math.random() < 0.60) {
+    if (!G.breakerOn && G.archCfg.hasGrid && Math.random() < 0.60) {
       G.breakerOn = true;
+      G.rooms.forEach(function(rm) { rm.frosted = false; });
       playSound("breaker");
       logMsg("⚡ HAUNT HABIT: The Master Breaker was mysteriously switched ON by a power surge!", "haunt");
       applyProximityEventDrain(gRoom, 2, 1, "Grid Surge");
@@ -2219,24 +2633,25 @@ function executeGhostPreferences(gRoom, ghostData) {
       playSound("emf_low");
       logMsg("💡 HAUNT HABIT: The room light in [" + gRoom.name + "] flickered ON by itself!", "haunt");
       var litCount = G.rooms.filter(function(rm) { return rm.tags.indexOf("Exterior") === -1 && rm.lit && !rm.permLit; }).length;
-      if (litCount > G.maxSafeLights && G.secretGhost !== "Jinn") {
+      if (litCount > G.maxSafeLights && gKey !== "Jinn") {
         G.breakerOn = false;
         G.rooms.forEach(function(rm) { if (rm.tags.indexOf("Exterior") === -1 && !rm.permLit) rm.lit = false; });
         playSound("breaker");
-        logMsg("⚡ CIRCUIT OVERLOAD! The ghost turned on too many lights and tripped the Breaker OFF!", "hunt");
+        logMsg("⚡ CIRCUIT OVERLOAD! Too many lights were surged ON and tripped the Breaker OFF!", "hunt");
       }
       return true;
     }
   } else if (pref === "lightsOff") {
     if (gRoom.lit && !gRoom.permLit && Math.random() < 0.65) {
       gRoom.lit = false;
+      G.flamesSnuffed = (G.flamesSnuffed || 0) + 1;
       playSound("step");
       logMsg("💡 HAUNT HABIT: The lights in [" + gRoom.name + "] were switched OFF into darkness!", "haunt");
       applyProximityEventDrain(gRoom, 2, 0, "Lights Extinguished");
       return true;
     }
   } else if (pref === "lightsBreak") {
-    if (gRoom.lit && !gRoom.permLit && isAngry && Math.random() < 0.50) {
+    if (gRoom.lit && !gRoom.permLit && isAngry && G.archCfg.hasGrid && Math.random() < 0.50) {
       gRoom.lit = false;
       gRoom.lightBroken = true;
       playSound("hunt");
@@ -2245,14 +2660,15 @@ function executeGhostPreferences(gRoom, ghostData) {
       return true;
     } else if (gRoom.lit && !gRoom.permLit && Math.random() < 0.55) {
       gRoom.lit = false;
+      G.flamesSnuffed = (G.flamesSnuffed || 0) + 1;
       playSound("step");
-      logMsg("💡 HAUNT HABIT: The light switch in [" + gRoom.name + "] was slammed OFF!", "haunt");
+      logMsg("💡 HAUNT HABIT: The light in [" + gRoom.name + "] was slammed OFF!", "haunt");
       applyProximityEventDrain(gRoom, 2, 1, "Light Slam");
       return true;
     }
   }
 
-  var intNeighbors = gRoom.neighbors.map(function(id) { return getRoom(id); }).filter(function(nr) { return nr && nr.tags.indexOf("Exterior") === -1; });
+  var intNeighbors = gRoom.neighbors.map(function(id) { return getRoom(id); }).filter(function(nr) { return nr && nr.tags.indexOf("Exterior") === -1 && !isSecurityDoorBlocking(gRoom, nr); });
   if (intNeighbors.length > 0 && Math.random() < 0.55) {
     var unexpN = intNeighbors.filter(function(nr) { return !nr.discovered && !nr.openedByGhost; });
     if (unexpN.length > 0 && (pref === "doorsOpen" || Math.random() < 0.45)) {
@@ -2298,18 +2714,41 @@ function endRoundHauntPhase() {
   clearUndoState();
   G.ghostTrail = [];
   G.activeStepRoomId = null;
+  G.rooms.forEach(function(rm) { rm.sensorTriggeredThisTurn = false; });
+
+  // Mimic shifts active behavioral persona every 3 rounds
+  if (G.secretGhost === "Mimic" && G.round % 3 === 0) {
+    var otherG = Object.keys(GHOST_DB).filter(function(k) { return k !== "Mimic"; });
+    G.mimicPersona = otherG[Math.floor(Math.random() * otherG.length)];
+  }
+  var gKey = getActiveGhostBehaviorKey();
+  var ghostData = GHOST_DB[gKey] || GHOST_DB[G.secretGhost];
+
+  // Thunderstorm Lightning Flash every 2 rounds
+  if (G.weather && G.weather.type === "Thunderstorm" && G.round % 2 === 0) {
+    var flickeredAny = false;
+    G.rooms.forEach(function(rm) {
+      if (rm.tags.indexOf("Exterior") === -1 && rm.lit && !rm.permLit && !roomHasChargedWardOrCrux(rm)) {
+        rm.lit = false; flickeredAny = true;
+      }
+    });
+    playSound("breaker");
+    if (flickeredAny) logMsg("⛈️⚡ LIGHTNING STRIKE: Thunder shook the building and flickered unwarded room lights OFF!", "haunt");
+  }
 
   var isMicroHunt = (G.huntActive && !G.banishmentMode);
   G.players.forEach(function(p) {
     var r = getRoom(p.roomId);
     if (p.spirit || r.tags.indexOf("Exterior") !== -1) return;
     if (isMicroHunt) {
-      p.sanity = Math.max(0, p.sanity - 1);
+      var phantomLoS = (gKey === "Phantom" && hasLineOfSight(r, getRoom(G.ghostRoomId))) ? 2 : 0;
+      p.sanity = Math.max(0, p.sanity - (1 + phantomLoS));
     } else {
       var drain = G.diffCfg.houseDrain + (p.moroiCursed ? 1 : 0);
       var hasLight = p.hands.some(function(i) { return (i.name.indexOf("UV") !== -1 || i.name.indexOf("Cam") !== -1) && i.on; });
       var holdingCrux = p.hands.some(function(i) { return i.name.indexOf("Crucifix") !== -1 && (typeof i.charges !== "number" || i.charges > 0); });
-      if (!r.lit && !roomHasChargedWardOrCrux(r) && !holdingCrux && !hasLight) drain += G.diffCfg.darkDrain;
+      var blizzardExtra = (G.weather && G.weather.type === "Blizzard" && !G.breakerOn) ? 1 : 0;
+      if (!r.lit && !roomHasChargedWardOrCrux(r) && !holdingCrux && !hasLight) drain += G.diffCfg.darkDrain + blizzardExtra;
       p.sanity = Math.max(0, p.sanity - drain);
     }
     if (G.huntActive) {
@@ -2319,16 +2758,44 @@ function endRoundHauntPhase() {
     }
   });
 
-  var ghostData = GHOST_DB[G.secretGhost], evs = getEffectiveGhostEvList(), favRoom = getRoom(G.ghostFavRoomId);
+  var evs = getEffectiveGhostEvList(), favRoom = getRoom(G.ghostFavRoomId);
 
   if (!G.huntActive) {
-    var validNeighbors = favRoom.neighbors.filter(function(id) { return getRoom(id).tags.indexOf("Exterior") === -1; });
-    if (G.secretGhost === "Goryo" || Math.random() < 0.70 || validNeighbors.length === 0) G.ghostRoomId = G.ghostFavRoomId;
-    else G.ghostRoomId = validNeighbors[Math.floor(Math.random() * validNeighbors.length)];
+    G.prevGhostRoomId = G.ghostRoomId;
+    var validNeighbors = favRoom.neighbors.filter(function(id) {
+      var nr = getRoom(id);
+      return nr && nr.tags.indexOf("Exterior") === -1 && !isSecurityDoorBlocking(favRoom, nr);
+    });
+    var insideLiving = G.players.filter(function(pl) { return !pl.spirit && getRoom(pl.roomId).tags.indexOf("Exterior") === -1; });
+
+    // Wraith Dimensional Warp (20% chance to warp to a random player inside)
+    if (gKey === "Wraith" && insideLiving.length > 0 && Math.random() < 0.22) {
+      G.ghostRoomId = insideLiving[Math.floor(Math.random() * insideLiving.length)].roomId;
+    } else if (gKey === "Goryo" || Math.random() < 0.70 || validNeighbors.length === 0) {
+      G.ghostRoomId = G.ghostFavRoomId;
+    } else {
+      G.ghostRoomId = validNeighbors[Math.floor(Math.random() * validNeighbors.length)];
+    }
 
     var gRoom = getRoom(G.ghostRoomId), rate = G.diffCfg.evSuccessRate;
-    if (gRoom.motionSensor) { playSound("emf_low"); logMsg("📡 MOTION SENSOR: Ghost in [" + gRoom.name + "]!", "clue"); }
-    gRoom.hiddenTouch += (G.secretGhost === "Poltergeist") ? 2 : 1;
+    var crowdCount = G.players.filter(function(pl) { return !pl.spirit && pl.roomId === gRoom.id; }).length;
+
+    // Shade flees to an adjacent empty room if 2+ players are inside its room
+    if (gKey === "Shade" && crowdCount >= 2 && validNeighbors.length > 0) {
+      G.ghostRoomId = validNeighbors[0];
+      gRoom = getRoom(G.ghostRoomId);
+    }
+
+    checkMotionSensorTrip(gRoom);
+
+    // Hantu spreads Permafrost when Breaker is OFF
+    if (gKey === "Hantu" && !G.breakerOn) {
+      gRoom.frosted = true;
+      var frostN = gRoom.neighbors.map(function(id) { return getRoom(id); }).filter(function(nr) { return nr && nr.tags.indexOf("Exterior") === -1 && !nr.frosted; });
+      if (frostN.length > 0) frostN[0].frosted = true;
+    }
+
+    gRoom.hiddenTouch += (gKey === "Poltergeist" || (gKey === "Oni" && crowdCount >= 2)) ? 2 : 1;
 
     var book = gRoom.floorItems.find(function(i) { return i.name.indexOf("Writing") !== -1 || i.name.indexOf("Tome") !== -1; });
     var bookRate = book ? getToolSuccessRate(book) + (book.name.indexOf("Tome") !== -1 ? 0.25 : 0) : rate;
@@ -2369,39 +2836,50 @@ function endRoundHauntPhase() {
 
     var didPrefEvent = executeGhostPreferences(gRoom, ghostData);
 
-    if (!didPrefEvent) {
-      var mylingMuted = (G.secretGhost === "Myling") && !G.players.some(function(pl) { return pl.roomId === gRoom.id || areConnected(getRoom(pl.roomId), gRoom); });
+    if (!didPrefEvent && !(gKey === "Shade" && crowdCount >= 2)) {
+      var mylingNear = G.players.some(function(pl) { return pl.roomId === gRoom.id || areConnected(getRoom(pl.roomId), gRoom); });
+      var mylingMuted = (gKey === "Myling") && !mylingNear;
       var evRoll = Math.random();
-      if (evRoll < 0.40) {
+      if ((evRoll < 0.45 || (gKey === "Myling" && mylingNear && evRoll < 0.75)) && gKey !== "Oni") {
         if (!mylingMuted) { playSound("step"); logMsg("👣 HAUNT AUDIO: Cold whispers echo on " + formatFloorName(gRoom.floor) + "...", "haunt"); }
         applyProximityEventDrain(gRoom, 1, 0, "Cold Whispers");
-      } else if (evRoll < 0.80) {
+      } else if (evRoll < 0.82) {
         if (!mylingMuted) { playSound("step"); logMsg("🔊 HAUNT AUDIO: Objects crash on " + formatFloorName(gRoom.floor) + "!", "haunt"); }
-        applyProximityEventDrain(gRoom, (G.secretGhost === "Poltergeist" || G.secretGhost === "Oni") ? 3 : 2, 1, "Violent Throw");
+        applyProximityEventDrain(gRoom, (gKey === "Poltergeist" || gKey === "Oni") ? 3 : 2, 1, "Violent Throw");
       } else {
         playSound("hunt"); logMsg("👻 HAUNT AUDIO: Terrifying groan on " + formatFloorName(gRoom.floor) + "!", "hunt");
         applyProximityEventDrain(gRoom, 4, 2, "Full Apparition");
       }
     }
 
-    var anyLivingInside = G.players.some(function(pl) {
-      return !pl.spirit && getRoom(pl.roomId).tags.indexOf("Exterior") === -1;
-    });
+    var anyLivingInside = insideLiving.length > 0;
+    var effHuntSanity = ghostData.huntSanity;
+    if (gKey === "Mare") effHuntSanity = gRoom.lit ? 40 : 65;
+    if (gKey === "Yokai" && G.players.some(function(pl) { return !pl.spirit && pl.roomId === gRoom.id && pl.hands.filter(function(i){return i.elec&&i.on;}).length >= 2; })) {
+      effHuntSanity = 75;
+    }
+    var onryoFlameHunt = (gKey === "Onryo" && G.flamesSnuffed >= 3 && !gRoom.lit);
 
-    // v9.9: Hunt Grace Period (`G.huntCooldown`) prevents infinite back-to-back hunts at low/0% Sanity!
     if (G.huntCooldown > 0) {
       G.huntCooldown -= 1;
-      if (anyLivingInside && getTeamSanity() <= ghostData.huntSanity) {
-        logMsg("⏳ HUNT GRACE PERIOD: The entity is recovering its strength (" + (G.huntCooldown + 1) + " turn(s) before it can hunt again).", "clue");
-      }
-    } else if (anyLivingInside && getTeamSanity() <= ghostData.huntSanity && G.smudgeSafe <= 0) {
+    } else if (anyLivingInside && (getTeamSanity() <= effHuntSanity || onryoFlameHunt) && G.smudgeSafe <= 0 && !(gKey === "Shade" && crowdCount >= 2)) {
+      if (onryoFlameHunt) G.flamesSnuffed = 0;
+      var cruxRoom = gRoom;
       var crux = gRoom.floorItems.find(function(i) { return i.name.indexOf("Crucifix") !== -1 && i.charges > 0; });
+      // Demon 1-tile wider Crucifix vulnerability
+      if (!crux && gKey === "Demon") {
+        for (var nb = 0; nb < gRoom.neighbors.length; nb++) {
+          var adjCR = getRoom(gRoom.neighbors[nb]);
+          var adjCrux = adjCR && adjCR.floorItems.find(function(i) { return i.name.indexOf("Crucifix") !== -1 && i.charges > 0; });
+          if (adjCrux) { crux = adjCrux; cruxRoom = adjCR; break; }
+        }
+      }
       if (crux) {
         crux.charges -= 1;
         if (crux.charges <= 0) transformCrucifixToCharred(crux);
-        G.huntCooldown = G.diffCfg.huntCooldownTurns || 2;
+        G.huntCooldown = Math.max(1, (G.diffCfg.huntCooldownTurns || 2) - (gKey === "Demon" ? 1 : 0));
         playSound("clue");
-        logMsg("✝️ CRUCIFIX burned a charge and blocked a Hunt! (Charred Crucifix remains on floor as a valid Ward!)", "clue");
+        logMsg("✝️ CRUCIFIX in [" + cruxRoom.name + "] burned a charge and blocked a Hunt! (Charred Crucifix remains on floor as a valid Ward!)", "clue");
       } else {
         G.huntActive = true; G.huntTurns = G.diffCfg.baseHuntRounds + (Math.random() < 0.5 ? 1 : 0);
         if (!gRoom.discovered) {
@@ -2409,6 +2887,7 @@ function endRoundHauntPhase() {
           G.ghostRoomId = disc[Math.floor(Math.random() * disc.length)].id;
         }
         G.ghostTrail = [G.ghostRoomId];
+        checkMotionSensorTrip(getRoom(G.ghostRoomId));
         playSound("hunt");
         logMsg("🚨 SURVIVAL HUNT INITIATED (2 AP PER TURN)! Exterior doors LOCKED! Hide or break Line of Sight!", "hunt");
       }
@@ -2425,7 +2904,7 @@ function endRoundHauntPhase() {
       checkGhostSearchInRoom(boundR, ghostData);
       boundR.neighbors.forEach(function(nId) {
         var adjR = getRoom(nId);
-        if (!adjR || adjR.tags.indexOf("Exterior") !== -1 || isDoorClosedBetween(boundR, adjR)) return;
+        if (!adjR || adjR.tags.indexOf("Exterior") !== -1 || isDoorClosedBetween(boundR, adjR) || isSecurityDoorBlocking(boundR, adjR)) return;
         G.players.forEach(function(pl) {
           if (!pl.spirit && pl.roomId === adjR.id && !pl.isHidden) {
             pl.roomId = boundR.id;
@@ -2456,17 +2935,34 @@ function endRoundHauntPhase() {
     logMsg("🌿 HUNT BLINDED: Incense smoke prevents the Ghost from moving this round!", "clue");
     if (!G.banishmentMode && --G.huntTurns <= 0) {
       G.huntActive = false;
-      G.huntCooldown = G.diffCfg.huntCooldownTurns || 2;
+      G.huntCooldown = Math.max(1, (G.diffCfg.huntCooldownTurns || 2) - (gKey === "Demon" ? 1 : 0));
       stopHuntTurnTimer();
-      logMsg("🔓 Hunt subsided—doors unlocked (" + G.huntCooldown + "-turn Grace Period active).", "clue");
+      logMsg("🔓 Hunt subsided—doors unlocked.", "clue");
     }
     finalizeNextRoundStart();
     return;
   }
 
-  var insideLiving = G.players.filter(function(p) { return !p.spirit && getRoom(p.roomId).tags.indexOf("Exterior") === -1; });
-  var priority = (G.secretGhost === "Deogen") ? insideLiving.slice() : insideLiving.filter(function(p) { return !p.isHidden || p.madeNoise; });
-  var lureRoom = G.rooms.find(function(rm) { return rm.lureBeacon; }) || (G.corpseLureActive ? getRoom(G.anchorRoomId) : null);
+  var insideLivingH = G.players.filter(function(p) { return !p.spirit && getRoom(p.roomId).tags.indexOf("Exterior") === -1; });
+  var obsP = G.players[G.obsessionIdx];
+  var bansheeFixated = (gKey === "Banshee" && obsP && !obsP.spirit && getRoom(obsP.roomId).tags.indexOf("Exterior") === -1);
+
+  var priority = [];
+  if (bansheeFixated) {
+    if (!obsP.isHidden || obsP.madeNoise) priority = [obsP];
+  } else if (gKey === "Deogen") {
+    priority = insideLivingH.slice();
+  } else {
+    priority = insideLivingH.filter(function(p) {
+      if (!p.isHidden || p.madeNoise) {
+        if (gKey === "Yokai" && findShortestRoomPath(G.ghostRoomId, p.roomId).length > 2) return false;
+        return true;
+      }
+      return false;
+    });
+  }
+
+  var lureRoom = G.rooms.find(function(rm) { return rm.lureBeacon || (gKey === "Yokai" && rm.envElecOn); }) || (G.corpseLureActive ? getRoom(G.anchorRoomId) : null);
 
   var plannedRoomIds = [];
   var isChasing = (lureRoom !== null || priority.length > 0);
@@ -2485,12 +2981,12 @@ function endRoundHauntPhase() {
     targetDist = rawPath.length;
     var cSteps = getEffectiveGhostHuntSteps(ghostData, true, targetDist);
     plannedRoomIds = rawPath.slice(0, cSteps);
-  } else if (insideLiving.length > 0 && Math.random() < 0.65) {
-    // v9.9 Stalking Instinct: Even when everyone is hidden, the Ghost stalks toward an occupied room 65% of the time to test Stealth!
-    var stalkTargets = insideLiving.slice().sort(function(a, b) {
+  } else if (insideLivingH.length > 0 && Math.random() < 0.65) {
+    var stalkPool = bansheeFixated ? [obsP] : insideLivingH.slice();
+    stalkPool.sort(function(a, b) {
       return findShortestRoomPath(G.ghostRoomId, a.roomId).length - findShortestRoomPath(G.ghostRoomId, b.roomId).length;
     });
-    var sPath = findShortestRoomPath(G.ghostRoomId, stalkTargets[0].roomId);
+    var sPath = findShortestRoomPath(G.ghostRoomId, stalkPool[0].roomId);
     var pSteps = getEffectiveGhostHuntSteps(ghostData, false, sPath.length);
     plannedRoomIds = sPath.slice(0, pSteps);
   } else {
@@ -2498,7 +2994,10 @@ function endRoundHauntPhase() {
     var simCurrId = G.ghostRoomId;
     for (var pStep = 0; pStep < patSteps; pStep++) {
       var cG = getRoom(simCurrId);
-      var pat = cG.neighbors.filter(function(nId) { var nr = getRoom(nId); return nr && nr.discovered && nr.tags.indexOf("Exterior") === -1; });
+      var pat = cG.neighbors.filter(function(nId) {
+        var nr = getRoom(nId);
+        return nr && nr.discovered && nr.tags.indexOf("Exterior") === -1 && !isSecurityDoorBlocking(cG, nr);
+      });
       if (pat.length > 0) {
         simCurrId = pat[Math.floor(Math.random() * pat.length)];
         plannedRoomIds.push(simCurrId);
@@ -2517,9 +3016,9 @@ function endRoundHauntPhase() {
       G.activeStepRoomId = null;
       if (G.huntActive && !G.banishmentMode && --G.huntTurns <= 0) {
         G.huntActive = false;
-        G.huntCooldown = G.diffCfg.huntCooldownTurns || 2;
+        G.huntCooldown = Math.max(1, (G.diffCfg.huntCooldownTurns || 2) - (gKey === "Demon" ? 1 : 0));
         stopHuntTurnTimer();
-        logMsg("🔓 Hunt subsided—doors unlocked (" + G.huntCooldown + "-turn Grace Period active).", "clue");
+        logMsg("🔓 Hunt subsided—doors unlocked.", "clue");
       }
       if (G.players.every(function(p) { return p.spirit; })) {
         showPostMortemModal("💀 SQUAD WIPED // POST-MORTEM REPORT");
@@ -2542,8 +3041,8 @@ function endRoundHauntPhase() {
       remainingSteps -= smashCost;
       playSound("breaker");
 
-      var breakChance = (G.secretGhost === "Oni" || G.secretGhost === "Demon") ? 0.75 : 0.40;
-      if (!wasWedged && Math.random() < breakChance) {
+      var breakChance = (gKey === "Oni" || gKey === "Demon") ? 0.75 : 0.40;
+      if (!wasWedged && G.mapArchetype !== "Catacombs" && Math.random() < breakChance) {
         if (!fromR.brokenDoors) fromR.brokenDoors = [];
         if (!nextR.brokenDoors) nextR.brokenDoors = [];
         if (fromR.brokenDoors.indexOf(nextR.id) === -1) fromR.brokenDoors.push(nextR.id);
@@ -2560,9 +3059,12 @@ function endRoundHauntPhase() {
       }
     }
 
+    G.prevGhostRoomId = G.ghostRoomId;
     G.ghostRoomId = nextR.id;
     G.activeStepRoomId = nextR.id;
     if (G.ghostTrail.indexOf(nextR.id) === -1) G.ghostTrail.push(nextR.id);
+    if (gKey === "Poltergeist") nextR.visibleTouch += 1;
+    checkMotionSensorTrip(nextR);
     remainingSteps -= 1;
 
     if (nextR.lureBeacon) {
@@ -2574,16 +3076,19 @@ function endRoundHauntPhase() {
       logMsg("💀🔔 CORPSE LURE COMPLETE: The Ghost has arrived at its remains in [" + nextR.name + "]!", "ritual");
     }
 
-    playSound("step");
     var visibleNow = canSquadSeeGhostInRoom(nextR);
     var mediumNear = G.players.some(function(pl) { return pl.baseClass === "Medium" && (pl.roomId === nextR.id || areConnected(getRoom(pl.roomId), nextR)); });
+    var mylingAudible = (gKey !== "Myling") || G.players.some(function(pl) { return pl.roomId === nextR.id || areConnected(getRoom(pl.roomId), nextR); });
+
+    if (mylingAudible) playSound("step");
+
     if (visibleNow) {
       G.currentFloorView = nextR.floor;
       logMsg("🚨 SPOTTED (STEP " + G.ghostTrail.length + "): The Ghost is visible in [" + nextR.name + "]!", "hunt");
     } else if (mediumNear) {
       logMsg("🔮 MEDIUM SENSE (STEP " + G.ghostTrail.length + "): Footsteps stalk into [" + nextR.name + "]!", "haunt");
-    } else if (G.secretGhost !== "Myling") {
-      logMsg("👣 AUDIO CUE (STEP " + G.ghostTrail.length + "): Heavy footsteps echo on " + formatFloorName(nextR.floor) + " (" + getRoomCompassSector(nextR) + ")...", "haunt");
+    } else if (mylingAudible) {
+      logMsg("👣 AUDIO CUE (STEP " + G.ghostTrail.length + "): Footsteps echo on " + formatFloorName(nextR.floor) + " (" + getRoomCompassSector(nextR) + ")...", "haunt");
     }
 
     renderAll();
@@ -2595,9 +3100,9 @@ function endRoundHauntPhase() {
       G.activeStepRoomId = null;
       if (G.huntActive && !G.banishmentMode && --G.huntTurns <= 0) {
         G.huntActive = false;
-        G.huntCooldown = G.diffCfg.huntCooldownTurns || 2;
+        G.huntCooldown = Math.max(1, (G.diffCfg.huntCooldownTurns || 2) - (gKey === "Demon" ? 1 : 0));
         stopHuntTurnTimer();
-        logMsg("🔓 Hunt subsided—doors unlocked (" + G.huntCooldown + "-turn Grace Period active).", "clue");
+        logMsg("🔓 Hunt subsided—doors unlocked.", "clue");
       }
       if (G.players.every(function(p) { return p.spirit; })) {
         showPostMortemModal("💀 SQUAD WIPED // POST-MORTEM REPORT");
@@ -2615,9 +3120,9 @@ function endRoundHauntPhase() {
     G.isAnimatingHunt = false;
     if (G.huntActive && !G.banishmentMode && --G.huntTurns <= 0) {
       G.huntActive = false;
-      G.huntCooldown = G.diffCfg.huntCooldownTurns || 2;
+      G.huntCooldown = Math.max(1, (G.diffCfg.huntCooldownTurns || 2) - (gKey === "Demon" ? 1 : 0));
       stopHuntTurnTimer();
-      logMsg("🔓 Hunt subsided—doors unlocked (" + G.huntCooldown + "-turn Grace Period active).", "clue");
+      logMsg("🔓 Hunt subsided—doors unlocked.", "clue");
     }
     if (G.players.every(function(p) { return p.spirit; })) {
       showPostMortemModal("💀 SQUAD WIPED // POST-MORTEM REPORT");
@@ -2650,6 +3155,7 @@ function finalizeNextRoundStart() {
       p.gaspNextTurn = false;
       if (p.isHidden && G.huntActive) { p.madeNoise = true; logMsg("😮‍💨 GASP FOR AIR! " + p.name + " gasped loudly (🔊 Noise)!", "hunt"); }
     }
+    evaluatePlayerHallucinations(p);
   });
 
   if (G.huntActive && !G.gameOver) startHuntTurnTimer();
@@ -2681,7 +3187,6 @@ function claimPlayer(victim, room) {
     logMsg("🩸 HOUSE CLEARED: All investigators inside the house were claimed! The Ghost's hunt subsides, exterior doors UNLOCK, and Exorcism resets to Stage 0!", "hunt");
   }
 }
-
 /* ============================================================================
    9. RENDERING: BIG SCREEN TV HOST + MOBILE P.D.A. CONTROLLER
 ============================================================================ */
@@ -2694,6 +3199,8 @@ function getFloorItemShortBadge(item) {
   if (n.indexOf("Cam") !== -1) return "📹 Cam";
   if (n.indexOf("Writing") !== -1 || n.indexOf("Tome") !== -1) return "📖 Book" + (item.written ? "✍️" : "");
   if (n.indexOf("D.O.T.S.") !== -1) return "🟢 DOTS";
+  if (n.indexOf("Motion Sensor") !== -1) return "📡 Sensor(" + (item.charges || 0) + ")";
+  if (n.indexOf("Decryption Deck") !== -1) return "🧑‍💻 Deck";
   if (n.indexOf("Crucifix") !== -1) return (item.charges > 0 ? "✝️ Crux(" + item.charges + ")" : "✝️🔥 Ward");
   if (n.indexOf("Smudge") !== -1 || n.indexOf("Thurible") !== -1) return "🌿 Smudge";
   if (n.indexOf("Salt") !== -1) return "🧂 Salt";
@@ -2706,18 +3213,28 @@ function buildRoomBadgesHtml(room, isExt, trailIdx) {
   var badges = "";
   if (trailIdx !== -1) badges += '<span class="r-badge trail-badge">👣 Step ' + (trailIdx + 1) + '</span>';
   if (room.searched && !isExt) badges += '<span class="r-badge" style="color:var(--green); border-color:var(--green);">🔍✓</span>';
+  if (room.securityLocked && !isExt) {
+    if (room.securityHacked) badges += '<span class="r-badge" style="color:var(--cyan); border-color:var(--cyan);">🧑‍💻 Hacked</span>';
+    else if (G.breakerOn) badges += '<span class="r-badge" style="color:var(--red); border-color:var(--red);">🔐 Locked</span>';
+    else badges += '<span class="r-badge" style="color:var(--amber);">🔓 Power Off</span>';
+  }
+  if (room.motionSensor) {
+    badges += '<span class="r-badge" style="color:' + (room.sensorTriggeredThisTurn ? '#fff; background:var(--green)' : 'var(--cyan)') + '; border-color:var(--cyan);">📡 ' + (room.sensorTriggeredThisTurn ? 'MOTION!' : 'Sensor') + '</span>';
+  }
+  if (room.frosted && !isExt) badges += '<span class="r-badge" style="color:var(--cyan); border-color:var(--cyan);">❄️ Frost</span>';
   if (room.lightBroken && !room.permLit) badges += '<span class="r-badge" style="color:var(--red); border-color:var(--red);">💥💡</span>';
   if (room.tags.indexOf("Stairs") !== -1) badges += '<span class="r-badge" style="color:var(--cyan);">🪜 Stairs</span>';
   if (room.tags.indexOf("Mirror") !== -1) badges += '<span class="r-badge">'+(room.mirrorUsed?'🪞💥':'🪞 Mirror')+'</span>';
+  if (G.mapArchetype === "Cemetery" && room.tags.indexOf("BellCandidate") !== -1) badges += '<span class="r-badge" style="color:var(--amber);">🔔 Bell</span>';
   if (room.envElecOn) badges += '<span class="r-badge" style="color:var(--red); border-color:var(--red);">📺 ON🔊</span>';
   if (room.dirtyWater) badges += '<span class="r-badge" style="color:var(--amber); border-color:var(--amber);">🚰 Water</span>';
   if (room.hasBackDoor) badges += '<span class="r-badge" style="color:var(--purple);">'+(room.backDoorUnlocked?'🚪 Back':'🔒 Latch')+'</span>';
-  if (room.id === G.fuseRoomId) badges += '<span class="r-badge" style="color:var(--amber);">⚡ Breaker</span>';
+  if (room.id === G.fuseRoomId && G.archCfg.hasGrid) badges += '<span class="r-badge" style="color:var(--amber);">⚡ Breaker</span>';
   if (room.forensicTrace && room.traceRevealed) badges += '<span class="r-badge" style="color:var(--red);">'+(room.traceScanned?'✓ ':'🩸 ')+room.traceTool+'</span>';
   if (room.anchorUncovered && G.anchorType === "corpse") badges += '<span class="r-badge" style="color:var(--purple);">💀 Corpse</span>';
   if (room.lureBeacon) badges += '<span class="r-badge" style="color:var(--amber);">🔊 Lure</span>';
   if (room.visibleTouch > 0) badges += '<span class="r-badge" style="color:var(--green);">🖐️ '+room.visibleTouch+'</span>';
-  if (room.salt) badges += '<span class="r-badge">🧂</span>';
+  if (room.salt) badges += '<span class="r-badge">'+(room.saltDisturbed?'🧂👣':'🧂')+'</span>';
   if (room.ward) badges += '<span class="r-badge">✡️</span>';
   if (room.id === "r0" && room.floorItems.length > 0) {
     badges += '<span class="r-badge">📦 ' + room.floorItems.length + ' Gear</span>';
@@ -2732,6 +3249,7 @@ function buildRoomBadgesHtml(room, isExt, trailIdx) {
 
 function getDoorNotchClass(room, adj) {
   if (!adj || room.neighbors.indexOf(adj.id) === -1) return "";
+  if (isSecurityDoorBlocking(room, adj)) return "security-door";
   if (isDoorBrokenBetween(room, adj)) return "broken-door";
   if (isDoorClosedBetween(room, adj)) return "closed-door";
   if (!adj.discovered && adj.openedByGhost) return "conn";
@@ -2747,13 +3265,20 @@ function renderAll() {
   var p = curPlayer(), curR = getRoom(p.roomId), exactSan = canSeeExactSanity();
   document.getElementById("campaign-badge").textContent = CAMP.active ? ("CAMPAIGN M" + CAMP.missionNum + "/3 (LIVES: " + CAMP.reserveLives + ")") : ("💵 $" + META.cash);
   document.getElementById("hud-diff").textContent = G.difficulty.toUpperCase() + " (" + G.interiorCount + "R)";
+  var wEl = document.getElementById("hud-weather");
+  if (wEl && G.weather) wEl.textContent = G.weather.icon + " " + G.weather.type.toUpperCase();
   document.getElementById("hud-round").textContent = "ROUND " + G.round;
   document.getElementById("hud-sanity").textContent = exactSan ? ("SANITY: " + getTeamSanity() + "%") : "SANITY: ??? (VAN)";
   var litCount = G.rooms.filter(function(rm) { return rm.tags.indexOf("Exterior") === -1 && rm.lit && !rm.permLit; }).length;
   var techKnowsLoad = G.players.some(function(pl) { return (pl.baseClass === "Technician" || pl.baseClass === "Electrician") && pl.roomId === G.fuseRoomId; }) || G.breakerUpgraded;
-  document.getElementById("hud-breaker").textContent = "BREAKER: " + (G.breakerOn ? "ON (" + litCount + "/" + (techKnowsLoad ? G.maxSafeLights : "~" + G.sizeCfg.baseLights) + "💡)" : "OFF");
+  document.getElementById("hud-breaker").textContent = !G.archCfg.hasGrid ? "GRID: 🔥 BRAZIERS" : ("BREAKER: " + (G.breakerOn ? "ON (" + litCount + "/" + (techKnowsLoad ? G.maxSafeLights : "~" + G.sizeCfg.baseLights) + "💡)" : "OFF"));
   document.getElementById("hud-key").textContent = "KEY: " + (G.hasBackDoorKey ? "🗝️ FOUND" : "🔒 NONE");
   document.getElementById("deck-count-label").textContent = G.rooms.filter(function(r) { return !r.discovered; }).length + " Unexplored";
+
+  var ruleBanner = document.getElementById("map-rule-banner");
+  if (ruleBanner && G.archCfg) {
+    ruleBanner.innerHTML = '<strong>' + G.archCfg.label + ':</strong> ' + G.archCfg.ruleText;
+  }
 
   var phaseEl = document.getElementById("hud-phase");
   phaseEl.textContent = G.huntActive ? (G.banishmentMode ? "🔥 EXORCISM ACT " + (G.ritualStage + 1) + "/3" + (G.ghostBoundRoomId ? " (⛓️" + G.chainIntegrity + "R)" : "") : "🚨 HUNT (2 AP)") : (G.huntCooldown > 0 ? "⏳ GRACE (" + G.huntCooldown + "R)" : "INVESTIGATION");
@@ -2797,11 +3322,16 @@ function renderAll() {
         var floorTooltip = room.floorItems.length > 0 ? ("Floor Items: " + room.floorItems.map(function(i){return i.name;}).join(", ")) : (room.searched ? "Searched (Empty floor)" : "Unsearched");
         var pawnsHtml = pawns.map(function(pw) { return '<span class="pawn '+(pw.name===p.name?'active-pawn ':'')+(pw.isHidden?'hidden-pawn ':'')+(pw.spirit?'spirit-pawn':'')+'">'+pw.icon+'</span>'; }).join("");
         if (showGhost) pawnsHtml += '<span class="pawn ghost-pawn">'+(isBound?'⛓️':'👹')+'</span>';
+        else if (p.hallucinationRoomId === room.id) pawnsHtml += '<span class="pawn hallucination-pawn" title="Low-Sanity Mirage">👤</span>';
 
+        var extraTileCls = (room.frosted ? 'frosted-room ' : '') + (room.sensorTriggeredThisTurn ? 'sensor-alert ' : '');
         var huntVisualCls = isBound ? 'ghost-bound' : (isSteppingNow ? 'ghost-stepping-now' : (showGhost ? 'ghost-room-hunt' : (trailIdx !== -1 ? 'ghost-trail-tile' : '')));
-        cellsHtml += '<div class="grid-cell"><div class="room-node '+room.zone+' '+(!room.lit&&!isExt?'dark ':'')+(isCur?'active-room ':'')+huntVisualCls+'" title="'+floorTooltip+'" data-action="move-room" data-room="'+room.id+'">'+getRoomArtSVG(room.art)+(getDoorNotchClass(room,nR)?'<div class="door-notch door-N '+getDoorNotchClass(room,nR)+'"></div>':'')+(getDoorNotchClass(room,sR)?'<div class="door-notch door-S '+getDoorNotchClass(room,sR)+'"></div>':'')+(getDoorNotchClass(room,eR)?'<div class="door-notch door-E '+getDoorNotchClass(room,eR)+'"></div>':'')+(getDoorNotchClass(room,wR)?'<div class="door-notch door-W '+getDoorNotchClass(room,wR)+'"></div>':'')+'<div><div class="r-title"><span>'+room.name+'</span><span>'+(isExt?'🌲':(room.lightBroken&&!room.permLit?'💥':(room.lit?'💡':'🌑')))+'</span></div><div class="r-sub">'+(isExt?'0 AP Safe':room.hideSpot+' (+'+room.hideMod+')')+'</div><div class="r-badges">'+badges+'</div></div><div class="r-tokens">'+pawnsHtml+'</div></div></div>';
+        cellsHtml += '<div class="grid-cell"><div class="room-node '+room.zone+' '+(!room.lit&&!isExt?'dark ':'')+(isCur?'active-room ':'')+extraTileCls+huntVisualCls+'" title="'+floorTooltip+'" data-action="move-room" data-room="'+room.id+'">'+getRoomArtSVG(room.art)+(getDoorNotchClass(room,nR)?'<div class="door-notch door-N '+getDoorNotchClass(room,nR)+'"></div>':'')+(getDoorNotchClass(room,sR)?'<div class="door-notch door-S '+getDoorNotchClass(room,sR)+'"></div>':'')+(getDoorNotchClass(room,eR)?'<div class="door-notch door-E '+getDoorNotchClass(room,eR)+'"></div>':'')+(getDoorNotchClass(room,wR)?'<div class="door-notch door-W '+getDoorNotchClass(room,wR)+'"></div>':'')+'<div><div class="r-title"><span>'+room.name+'</span><span>'+(isExt?'🌲':(room.lightBroken&&!room.permLit?'💥':(room.lit?'💡':'🌑')))+'</span></div><div class="r-sub">'+(isExt?'0 AP Safe':room.hideSpot+' (+'+room.hideMod+')')+'</div><div class="r-badges">'+badges+'</div></div><div class="r-tokens">'+pawnsHtml+'</div></div></div>';
       } else if (room && !room.discovered && curR.neighbors.indexOf(room.id) !== -1 && !p.spirit) {
-        if (room.openedByGhost) {
+        if (isSecurityDoorBlocking(curR, room)) {
+          var hackCostLbl = p.baseClass === "Hacker" ? "0 AP (Hacker)" : "1 AP (Deck) or Breaker OFF";
+          cellsHtml += '<div class="grid-cell explore-slot" style="border-color:var(--red); color:#ff8a80;" data-action="hack-door" data-room="'+room.id+'"><span>🔐 SECURITY LOCK</span><span style="font-size:9px; color:#fff;">'+room.name+'</span><span style="font-size:8px;">'+hackCostLbl+'</span></div>';
+        } else if (room.openedByGhost) {
           cellsHtml += '<div class="grid-cell explore-slot" style="border-color:var(--green); color:var(--green);" data-action="move-room" data-room="'+room.id+'"><span>🚪👻 CREAKED OPEN!</span><span style="font-size:9px; color:#fff;">??? (Unexplored)</span><span style="font-size:8px;">Walk In ('+(p.mp>=1?'1 MP':'1 AP')+')</span></div>';
         } else {
           cellsHtml += '<div class="grid-cell explore-slot" data-action="open-door" data-room="'+room.id+'"><span>🚪 + OPEN DOOR</span><span style="font-size:9px; color:#fff;">'+room.name+'</span><span style="font-size:8px;">1 AP (+1 Walk MP!)</span></div>';
@@ -2837,6 +3367,18 @@ function renderBottomDock(p, r) {
     if (nR && nR.floor !== r.floor) stairBtns += '<button type="button" class="btn-cyan" data-action="use-stairs" data-target="'+nR.id+'">🪜 '+(nR.discovered?nR.name:(nR.openedByGhost?'Step into '+formatFloorName(nR.floor):'Open '+formatFloorName(nR.floor)+' (1 AP)'))+'</button>';
   });
 
+  // Hacker remote door hacking from The Van or adjacent room
+  var hackBtns = "";
+  if (!p.spirit && (p.baseClass === "Hacker" || p.hands.some(function(i){return i.name.indexOf("Decryption Deck")!==-1&&i.on;}))) {
+    var hackPool = (r.id === "r0")
+      ? G.rooms.filter(function(rm) { return rm.securityLocked && !rm.securityHacked; }).slice(0, 2)
+      : r.neighbors.map(function(id){return getRoom(id);}).filter(function(nr){ return nr && nr.securityLocked && !nr.securityHacked; });
+    hackPool.forEach(function(secR) {
+      var hCost = (p.baseClass === "Hacker" && r.id !== "r0" && !G.huntActive) ? 0 : 1;
+      hackBtns += '<button type="button" class="btn-cyan" data-action="hack-door" data-room="'+secR.id+'" '+(p.ap<hCost?'disabled':'')+'>🧑‍💻 Hack: '+secR.name+' ('+hCost+' AP)</button>';
+    });
+  }
+
   var hideBtns = "";
   if (!isExt && !p.spirit) {
     if (!p.isHidden) hideBtns += '<button type="button" class="btn-red" data-action="enter-hide" '+(p.ap<1?'disabled':'')+'>🎲 Hide: '+r.hideSpot+' (+'+r.hideMod+')</button>';
@@ -2852,6 +3394,9 @@ function renderBottomDock(p, r) {
   if (!p.spirit && r.tags.indexOf("Mirror") !== -1 && !r.mirrorUsed && !G.huntActive) {
     envBtns += '<button type="button" class="btn-purple" data-action="gaze-mirror" '+(p.ap<1?'disabled':'')+'>🪞 Gaze Mirror (1 AP, -6 San)</button>';
   }
+  if (!p.spirit && G.mapArchetype === "Cemetery" && r.tags.indexOf("BellCandidate") !== -1) {
+    envBtns += '<button type="button" class="btn-amber" data-action="toll-bell" '+(p.ap<1?'disabled':'')+'>🔔 Toll Chapel Bell (1 AP Lure)</button>';
+  }
 
   var canDisturbCorpse = !p.spirit && G.anchorType === "corpse" && r.id === G.anchorRoomId && r.anchorUncovered && !G.ghostBoundRoomId;
   var canSearch = !p.spirit && r.id !== "r0" && (p.mp >= 1 || p.ap >= 1);
@@ -2859,8 +3404,9 @@ function renderBottomDock(p, r) {
   var holdingHeirloom = p.hands.some(function(i) { return i.isRelic; });
   var act2Label = (G.anchorType === "heirloom" && !holdingHeirloom) ? "⚠️ Act II: Hold Heirloom in Hand!" : "🏺 Act II: Purge (Heirloom Ready)";
   var actLbl = G.ritualStage === 0 ? "⛓️ Act I: Bind" : (G.ritualStage === 1 ? act2Label : "✨ Act III: Sever");
+  var lightBtnLbl = !G.archCfg.hasGrid ? "🔥 Brazier (1 AP)" : (r.lightBroken && !r.permLit ? "💥 Bulb Broken" : "💡 Light");
 
-  ctxEl.innerHTML = '<div><div style="font-weight:700; font-size:11px; color:var(--cyan); margin-bottom:4px;">📍 '+r.name+' ('+formatFloorName(r.floor)+')'+(roomHasWard(r)?' <span style="color:var(--amber);">[✡️ Warded]</span>':'')+'</div><div style="display:flex; flex-wrap:wrap; gap:4px;">'+stairBtns+(!p.spirit&&r.id!=="r0"?'<button type="button" class="'+(r.searched?'':'btn-green')+'" data-action="search-room" '+(!canSearch?'disabled':'')+'>'+searchLbl+'</button>':'')+envBtns+(canDisturbCorpse?'<button type="button" class="btn-purple" data-action="disturb-corpse" '+(p.ap<1?'disabled':'')+'>🔔 Disturb Remains (Lure 2 Tiles)</button>':'')+(!isExt?'<button type="button" data-action="flip-light">'+(r.lightBroken&&!r.permLit?'💥 Bulb Broken':'💡 Light')+'</button><button type="button" data-action="close-door">🚪 Shut Doors</button>':'')+(r.id===G.fuseRoomId?'<button type="button" data-action="flip-breaker">⚡ Breaker</button>':'')+(r.id===G.fuseRoomId&&p.baseClass==="Electrician"&&!G.breakerUpgraded?'<button type="button" class="btn-green" data-action="upgrade-breaker" '+(p.ap<1?'disabled':'')+'>🔧 Rewire (+2💡)</button>':'')+(r.ward&&!p.spirit?'<button type="button" data-action="wipe-ward">🧹 Wipe Ward</button>':'')+hideBtns+(G.banishmentMode&&!p.spirit&&G.ritualStage<3?'<button type="button" class="btn-purple" data-action="ritual-chant" '+(p.ap<1?'disabled':'')+'>'+actLbl+'</button>':'')+'</div></div><div style="border-top:1px solid var(--border); padding-top:4px;"><div style="display:flex; flex-wrap:wrap; gap:4px;">'+floorBtns+'</div></div>';
+  ctxEl.innerHTML = '<div><div style="font-weight:700; font-size:11px; color:var(--cyan); margin-bottom:4px;">📍 '+r.name+' ('+formatFloorName(r.floor)+')'+(roomHasWard(r)?' <span style="color:var(--amber);">[✡️ Warded]</span>':'')+'</div><div style="display:flex; flex-wrap:wrap; gap:4px;">'+stairBtns+hackBtns+(!p.spirit&&r.id!=="r0"?'<button type="button" class="'+(r.searched?'':'btn-green')+'" data-action="search-room" '+(!canSearch?'disabled':'')+'>'+searchLbl+'</button>':'')+envBtns+(canDisturbCorpse?'<button type="button" class="btn-purple" data-action="disturb-corpse" '+(p.ap<1?'disabled':'')+'>🔔 Disturb Remains (Lure 2 Tiles)</button>':'')+(!isExt?'<button type="button" data-action="flip-light">'+lightBtnLbl+'</button><button type="button" data-action="close-door">🚪 Shut Doors</button>':'')+(r.id===G.fuseRoomId&&G.archCfg.hasGrid?'<button type="button" data-action="flip-breaker">⚡ Breaker</button>':'')+(r.id===G.fuseRoomId&&G.archCfg.hasGrid&&p.baseClass==="Electrician"&&!G.breakerUpgraded?'<button type="button" class="btn-green" data-action="upgrade-breaker" '+(p.ap<1?'disabled':'')+'>🔧 Rewire (+2💡)</button>':'')+(r.ward&&!p.spirit?'<button type="button" data-action="wipe-ward">🧹 Wipe Ward</button>':'')+hideBtns+(G.banishmentMode&&!p.spirit&&G.ritualStage<3?'<button type="button" class="btn-purple" data-action="ritual-chant" '+(p.ap<1?'disabled':'')+'>'+actLbl+'</button>':'')+'</div></div><div style="border-top:1px solid var(--border); padding-top:4px;"><div style="display:flex; flex-wrap:wrap; gap:4px;">'+floorBtns+'</div></div>';
 }
 
 function getQuadToggleMeta(st) {
@@ -2924,7 +3470,7 @@ function renderRightTabs() {
 }
 
 /* ============================================================================
-   10. MOBILE PHONE P.D.A. CONTROLLER RENDERER (3x3 RADAR + INDEPENDENT JOURNAL)
+   10. MOBILE PHONE P.D.A. CONTROLLER RENDERER (4-CORNER RADAR + LOCAL JOURNAL)
 ============================================================================ */
 function renderMobileRoomTileHtml(room, curR, p) {
   if (!room) return '<div class="m-map-cell empty"></div>';
@@ -2936,6 +3482,9 @@ function renderMobileRoomTileHtml(room, curR, p) {
   }
 
   if (!room.discovered) {
+    if (isSecurityDoorBlocking(curR, room)) {
+      return '<div class="m-map-cell grid-cell explore-slot" style="width:100%; height:98px; border-color:var(--red); color:#ff8a80;" data-m-cmd="hack-door" data-room="'+room.id+'"><span>🔐 SECURITY DOOR</span><span style="font-size:9px; color:#fff;">'+room.name+'</span><span style="font-size:8px;">Hack or Breaker OFF</span></div>';
+    }
     if (room.openedByGhost) {
       return '<div class="m-map-cell grid-cell explore-slot" style="width:100%; height:98px; border-color:var(--green); color:var(--green);" data-m-cmd="move-room" data-room="'+room.id+'"><span>🚪👻 CREAKED OPEN!</span><span style="font-size:9px; color:#fff;">??? (Unexplored)</span><span style="font-size:8px;">Walk In ('+(p.mp>=1?'1 MP':'1 AP')+')</span></div>';
     }
@@ -2951,19 +3500,22 @@ function renderMobileRoomTileHtml(room, curR, p) {
   var badges = buildRoomBadgesHtml(room, isExt, trailIdx);
   var pawnsHtml = pawns.map(function(pw) { return '<span class="pawn '+(pw.name===p.name?'active-pawn ':'')+(pw.isHidden?'hidden-pawn ':'')+(pw.spirit?'spirit-pawn':'')+'">'+pw.icon+'</span>'; }).join("");
   if (showGhost) pawnsHtml += '<span class="pawn ghost-pawn">'+(isBound?'⛓️':'👹')+'</span>';
+  else if (p.hallucinationRoomId === room.id) pawnsHtml += '<span class="pawn hallucination-pawn">👤</span>';
 
   var nR = getRoomAt(room.floor, room.x, room.y-1), sR = getRoomAt(room.floor, room.x, room.y+1), eR = getRoomAt(room.floor, room.x+1, room.y), wR = getRoomAt(room.floor, room.x-1, room.y);
+  var extraTileCls = (room.frosted ? 'frosted-room ' : '') + (room.sensorTriggeredThisTurn ? 'sensor-alert ' : '');
   var huntVisualCls = isBound ? 'ghost-bound' : (showGhost ? 'ghost-room-hunt' : (trailIdx !== -1 ? 'ghost-trail-tile' : ''));
   var cmdAttr = isCur ? '' : 'data-m-cmd="move-room" data-room="'+room.id+'"';
   var moveHint = isCur ? '<span style="color:var(--cyan); font-weight:800;">[YOU]</span> ' : '🏃 ';
 
-  return '<div class="m-map-cell"><div class="room-node '+room.zone+' '+(!room.lit&&!isExt?'dark ':'')+(isCur?'active-room ':'')+huntVisualCls+'" '+cmdAttr+'>'+getRoomArtSVG(room.art)+(getDoorNotchClass(room,nR)?'<div class="door-notch door-N '+getDoorNotchClass(room,nR)+'"></div>':'')+(getDoorNotchClass(room,sR)?'<div class="door-notch door-S '+getDoorNotchClass(room,sR)+'"></div>':'')+(getDoorNotchClass(room,eR)?'<div class="door-notch door-E '+getDoorNotchClass(room,eR)+'"></div>':'')+(getDoorNotchClass(room,wR)?'<div class="door-notch door-W '+getDoorNotchClass(room,wR)+'"></div>':'')+'<div><div class="r-title"><span>'+moveHint+room.name+'</span><span>'+(isExt?'🌲':(room.lightBroken&&!room.permLit?'💥':(room.lit?'💡':'🌑')))+'</span></div><div class="r-sub">'+(isExt?'0 AP Safe':room.hideSpot+' (+'+room.hideMod+')')+'</div><div class="r-badges">'+badges+'</div></div><div class="r-tokens">'+pawnsHtml+'</div></div></div>';
+  return '<div class="m-map-cell"><div class="room-node '+room.zone+' '+(!room.lit&&!isExt?'dark ':'')+(isCur?'active-room ':'')+extraTileCls+huntVisualCls+'" '+cmdAttr+'>'+getRoomArtSVG(room.art)+(getDoorNotchClass(room,nR)?'<div class="door-notch door-N '+getDoorNotchClass(room,nR)+'"></div>':'')+(getDoorNotchClass(room,sR)?'<div class="door-notch door-S '+getDoorNotchClass(room,sR)+'"></div>':'')+(getDoorNotchClass(room,eR)?'<div class="door-notch door-E '+getDoorNotchClass(room,eR)+'"></div>':'')+(getDoorNotchClass(room,wR)?'<div class="door-notch door-W '+getDoorNotchClass(room,wR)+'"></div>':'')+'<div><div class="r-title"><span>'+moveHint+room.name+'</span><span>'+(isExt?'🌲':(room.lightBroken&&!room.permLit?'💥':(room.lit?'💡':'🌑')))+'</span></div><div class="r-sub">'+(isExt?'0 AP Safe':room.hideSpot+' (+'+room.hideMod+')')+'</div><div class="r-badges">'+badges+'</div></div><div class="r-tokens">'+pawnsHtml+'</div></div></div>';
 }
 
 function buildMobileLobbyDrawerHtml() {
   var ls = G.lobbyState || {
     selectedDifficulty: selectedDifficulty,
     selectedHouseSize: selectedHouseSize,
+    selectedMapArchetype: selectedMapArchetype,
     selectedClasses: selectedClasses,
     selectedInternCount: selectedInternCount,
     cash: META.cash,
@@ -2978,15 +3530,21 @@ function buildMobileLobbyDrawerHtml() {
     return '<button type="button" class="'+(sel?'btn-green':'')+'" style="font-size:10px; padding:6px;" data-m-cmd="m-toggle-spec" data-idx="'+idx+'">'+(sel?'✓ ':'')+tpl.icon+' '+tpl.name+' (T'+lvl+')</button>';
   }).join("");
 
+  var mapBtns = Object.keys(MAP_ARCHETYPES).map(function(mKey) {
+    var m = MAP_ARCHETYPES[mKey];
+    return '<button type="button" class="'+(ls.selectedMapArchetype===mKey?'btn-cyan':'')+'" style="font-size:9.5px; padding:5px;" data-m-cmd="m-set-map" data-map="'+mKey+'">'+m.label+'</button>';
+  }).join("");
+
   return '<div class="m-lobby-banner">' +
     '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">' +
-      '<strong style="color:var(--purple); font-size:12px;">📱 PHONE SQUAD &amp; CONTRACT SETUP</strong>' +
+      '<strong style="color:var(--purple); font-size:12px;">📱 PHONE SQUAD, MAP &amp; CONTRACT SETUP</strong>' +
       '<span style="color:var(--green); font-weight:800; font-size:11px;">💵 $'+(ls.cash||0)+'</span>' +
     '</div>' +
     '<div style="display:flex; gap:5px; margin-bottom:6px;">' +
       '<button type="button" class="'+(ls.selectedDifficulty==='Normal'?'btn-amber':'')+'" style="flex:1;" data-m-cmd="m-set-diff" data-diff="Normal">Normal (20s Hunt)</button>' +
       '<button type="button" class="'+(ls.selectedDifficulty==='Hard'?'btn-red':'')+'" style="flex:1;" data-m-cmd="m-set-diff" data-diff="Hard">Hard (1.5x Cash)</button>' +
     '</div>' +
+    '<div style="display:grid; grid-template-columns:1fr 1fr; gap:4px; margin-bottom:6px;">'+mapBtns+'</div>' +
     '<div style="display:flex; gap:5px; margin-bottom:6px;">' +
       ['Small','Medium','Large'].map(function(sz) {
         return '<button type="button" class="'+(ls.selectedHouseSize===sz?'btn-cyan':'')+'" style="flex:1;" data-m-cmd="m-set-size" data-size="'+sz+'">'+sz+'</button>';
@@ -3035,7 +3593,6 @@ function renderMobileController() {
   var rmW = getRoomAt(r.floor, r.x - 1, r.y);
   var rmE = getRoomAt(r.floor, r.x + 1, r.y);
 
-  // v9.9: All 4 corners unlocked on the 3x3 radar, prioritizing Interior Back Door rooms & Stairs first so Back Yard always shows Back Doors!
   var cardIds = [r.id, rmN?rmN.id:"", rmS?rmS.id:"", rmW?rmW.id:"", rmE?rmE.id:""];
   var extraNeighbors = r.neighbors.map(function(id){ return getRoom(id); }).filter(function(nr){ return nr && cardIds.indexOf(nr.id) === -1; });
   extraNeighbors.sort(function(a, b) {
@@ -3062,7 +3619,6 @@ function renderMobileController() {
     '</div>';
 
   var roomActBtns = "";
-  // Explicit Back Door & Stair quick-buttons for 100% clarity on mobile
   r.neighbors.forEach(function(nId) {
     var nR = getRoom(nId);
     if (!nR) return;
@@ -3080,6 +3636,16 @@ function renderMobileController() {
     }
   });
 
+  if (!p.spirit && (p.baseClass === "Hacker" || p.hands.some(function(i){return i.name.indexOf("Decryption Deck")!==-1&&i.on;}))) {
+    var mHackPool = (r.id === "r0")
+      ? G.rooms.filter(function(rm) { return rm.securityLocked && !rm.securityHacked; }).slice(0, 2)
+      : r.neighbors.map(function(id){return getRoom(id);}).filter(function(nr){ return nr && nr.securityLocked && !nr.securityHacked; });
+    mHackPool.forEach(function(secR) {
+      var hCost = (p.baseClass === "Hacker" && r.id !== "r0" && !G.huntActive) ? 0 : 1;
+      roomActBtns += '<button type="button" class="btn-cyan" data-m-cmd="hack-door" data-room="'+secR.id+'" '+(p.ap<hCost?'disabled':'')+'>🧑‍💻 Hack: '+secR.name+' ('+hCost+' AP)</button>';
+    });
+  }
+
   if (!p.spirit && r.id !== "r0") {
     var canS = (p.mp >= 1 || p.ap >= 1);
     roomActBtns += '<button type="button" class="'+(r.searched?'':'btn-green')+'" data-m-cmd="search-room" '+(!canS?'disabled':'')+'>'+(r.searched?'🔍 Searched ✓':'🔍 Search')+' ('+(p.mp>=1?'1 Walk MP':'1 AP')+')</button>';
@@ -3089,11 +3655,15 @@ function renderMobileController() {
   if (!p.spirit && r.tags.indexOf("Mirror") !== -1 && !r.mirrorUsed && !G.huntActive) {
     roomActBtns += '<button type="button" class="btn-purple" data-m-cmd="gaze-mirror" '+(p.ap<1?'disabled':'')+'>🪞 Gaze Mirror (1 AP, -6 San)</button>';
   }
+  if (!p.spirit && G.mapArchetype === "Cemetery" && r.tags.indexOf("BellCandidate") !== -1) {
+    roomActBtns += '<button type="button" class="btn-amber" data-m-cmd="toll-bell" '+(p.ap<1?'disabled':'')+'>🔔 Toll Chapel Bell (1 AP Lure)</button>';
+  }
   if (!p.spirit && G.anchorType === "corpse" && r.id === G.anchorRoomId && r.anchorUncovered && !G.ghostBoundRoomId) {
     roomActBtns += '<button type="button" class="btn-purple" data-m-cmd="disturb-corpse" '+(p.ap<1?'disabled':'')+'>🔔 Disturb Remains (Lure 2 Tiles)</button>';
   }
   if (!isExt) {
-    roomActBtns += '<button type="button" data-m-cmd="flip-light">'+(r.lightBroken&&!r.permLit?'💥 Bulb Broken':'💡 Light Switch')+'</button>';
+    var mLightLbl = !G.archCfg.hasGrid ? "🔥 Brazier (1 AP)" : (r.lightBroken && !r.permLit ? "💥 Bulb Broken" : "💡 Light Switch");
+    roomActBtns += '<button type="button" data-m-cmd="flip-light">'+mLightLbl+'</button>';
     roomActBtns += '<button type="button" data-m-cmd="close-door">🚪 Shut Doors</button>';
     if (!p.isHidden) roomActBtns += '<button type="button" class="btn-red" data-m-cmd="enter-hide" '+(p.ap<1?'disabled':'')+'>🎲 Hide: '+r.hideSpot+' (+'+r.hideMod+')</button>';
     else {
@@ -3101,7 +3671,7 @@ function renderMobileController() {
       roomActBtns += '<button type="button" class="btn-cyan" data-m-cmd="hold-breath" '+(p.ap<1||p.holdingBreath||mNb<=0?'disabled':'')+'>🫁 Hold Breath (+'+mNb+')</button><button type="button" data-m-cmd="leave-hide">🚶 Leave Hiding</button>';
     }
   }
-  if (r.id === G.fuseRoomId) {
+  if (r.id === G.fuseRoomId && G.archCfg.hasGrid) {
     roomActBtns += '<button type="button" class="btn-amber" data-m-cmd="flip-breaker">⚡ Master Breaker</button>';
     if (p.baseClass === "Electrician" && !G.breakerUpgraded) roomActBtns += '<button type="button" class="btn-green" data-m-cmd="upgrade-breaker" '+(p.ap<1?'disabled':'')+'>🔧 Rewire Breaker (+2💡)</button>';
   }
@@ -3132,7 +3702,7 @@ function renderMobileController() {
         '<div style="font-size:11px; margin-bottom:8px;">👹 True Ghost: <strong>'+G.secretGhost+'</strong> &bull; 🩸 Death: <strong>'+G.secretDeath+'</strong></div>' +
         '<div style="display:flex; gap:6px;">' +
           '<button type="button" class="btn-cyan" style="flex:1; padding:10px; font-size:12px;" data-m-cmd="m-launch-mission">⚡ QUICK REMATCH</button>' +
-          '<button type="button" class="btn-purple" style="flex:1; padding:10px; font-size:12px;" data-m-local="toggle-lobby">🔄 CHANGE SQUAD</button>' +
+          '<button type="button" class="btn-purple" style="flex:1; padding:10px; font-size:12px;" data-m-local="toggle-lobby">🔄 CHANGE SQUAD / MAP</button>' +
         '</div>' +
       '</div>';
   }
@@ -3142,11 +3712,10 @@ function renderMobileController() {
 
   document.getElementById("m-tab-actions").innerHTML =
     topBannerHtml +
-    '<div class="m-section"><div class="m-sec-title">1. LOCAL ROOM RADAR (TAP ADJACENT TILE TO MOVE / OPEN)</div>'+localGridHtml+'</div>' +
+    '<div class="m-section"><div class="m-sec-title">1. LOCAL ROOM RADAR ('+G.weather.icon+' '+G.weather.type.toUpperCase()+' — TAP ADJACENT TILE)</div>'+localGridHtml+'</div>' +
     '<div class="m-section"><div class="m-sec-title">2. ROOM & STEALTH ACTIONS</div><div class="m-btn-grid">'+roomActBtns+'</div></div>' +
     '<div class="m-section"><div class="m-sec-title">3. HANDHELD GEAR & FLOOR ITEMS</div>'+gearHtml+'<div style="margin-top:6px; display:flex; gap:5px; flex-wrap:wrap;">'+floorHtml+'</div></div>';
 
-  // v9.9: Independent Per-Phone Journal Dossier Selection (`localInspectedGhost` & `localInspectedDeath`)!
   var myGhost = localInspectedGhost || G.inspectedGhost || "Poltergeist";
   var myDeath = localInspectedDeath || G.inspectedDeath || "Poisoned";
 
@@ -3226,7 +3795,6 @@ function renderMobileController() {
    11. EVENT LISTENERS & DUAL-TRANSPORT MOBILE P.D.A. HANDSHAKE (WSS + PEERJS)
 ============================================================================ */
 document.addEventListener("click", function(e) {
-  // Handle purely local Phone UI actions (Independent Journal Dossier inspection & Lobby Drawer)
   var mLocal = e.target.closest("[data-m-local]");
   if (mLocal) {
     var lAct = mLocal.getAttribute("data-m-local");
@@ -3249,6 +3817,7 @@ document.addEventListener("click", function(e) {
       delta: parseInt(mBtn.getAttribute("data-delta") || "0", 10),
       diff: mBtn.getAttribute("data-diff"),
       size: mBtn.getAttribute("data-size"),
+      map: mBtn.getAttribute("data-map"),
       ev: mBtn.getAttribute("data-ev"),
       ft: mBtn.getAttribute("data-ft"),
       ghost: mBtn.getAttribute("data-ghost") || localInspectedGhost,
@@ -3271,6 +3840,7 @@ document.addEventListener("click", function(e) {
   if (act === "select-mode") { selectedMode = btn.getAttribute("data-mode"); renderLobbyModal(); broadcastStateToPhones(); }
   else if (act === "select-diff") { selectedDifficulty = btn.getAttribute("data-diff"); renderLobbyModal(); broadcastStateToPhones(); }
   else if (act === "select-size") { selectedHouseSize = btn.getAttribute("data-size"); renderLobbyModal(); broadcastStateToPhones(); }
+  else if (act === "select-map") { selectedMapArchetype = btn.getAttribute("data-map"); renderLobbyModal(); broadcastStateToPhones(); }
   else if (act === "toggle-lobby-char") {
     var lIdx = parseInt(btn.getAttribute("data-idx"), 10);
     if (!META.unlocked[lIdx]) return;
@@ -3357,7 +3927,7 @@ var resetMetaBtn = document.getElementById("btn-reset-meta");
 if (resetMetaBtn) {
   resetMetaBtn.addEventListener("click", function() {
     META = getDefaultMetaSave();
-    selectedClasses = [false,false,false,false,false,false,false,false,false,false,false,false];
+    selectedClasses = [false,false,false,false,false,false,false,false,false,false,false,false,false];
     selectedInternCount = 4;
     saveMetaSave();
     renderLobbyModal();
@@ -3605,12 +4175,13 @@ function connectPhoneToHost(code) {
     if (act === "reveal-map") {
       G.rooms.forEach(function(r) {
         r.discovered = true;
+        r.securityHacked = true;
         if (r.hasBackDoor) r.backDoorUnlocked = true;
         if (r.forensicTrace) r.traceRevealed = true;
         if (r.hasHiddenAnchor) uncoverAnchorInRoom(r);
       });
       G.tracesScannedCount = 3;
-      logMsg("🛠️ DEV: Revealed all rooms, traces, and the hidden Anchor!", "clue");
+      logMsg("🛠️ DEV: Revealed all rooms, hacked security doors, and uncovered the Anchor!", "clue");
     } else if (act === "max-ap") {
       G.players.forEach(function(pl) { pl.ap = 10; pl.mp = 10; pl.sanity = pl.maxSanity; pl.spirit = false; });
       logMsg("🛠️ DEV: Granted 10 AP, 10 Walk MP, and 100% Sanity.", "clue");
@@ -3637,7 +4208,7 @@ function connectPhoneToHost(code) {
       logMsg("🛠️ DEV: Auto-confirmed all Clues & Death Traits!", "clue");
     } else if (act === "tp-ghost") {
       var targetId = (G.anchorType === "corpse") ? G.anchorRoomId : G.ghostFavRoomId;
-      var gR = getRoom(targetId); gR.discovered = true;
+      var gR = getRoom(targetId); gR.discovered = true; gR.securityHacked = true;
       if (gR.hasHiddenAnchor) uncoverAnchorInRoom(gR);
       p.roomId = gR.id; G.currentFloorView = gR.floor;
       logMsg("🛠️ DEV: Teleported " + p.name + " to [" + gR.name + "]!", "ritual");
@@ -3651,7 +4222,7 @@ function connectPhoneToHost(code) {
       VAN_SHOP_CATALOG.forEach(function(v) { META.vanTiers[v.key] = 3; });
       saveMetaSave();
       renderLobbyModal();
-      logMsg("🛠️ DEV: Added +$1,000 Cash, unlocked all 12 Specialists at Level 3, and maxed Van Gear to Tier 3!", "clue");
+      logMsg("🛠️ DEV: Added +$1,000 Cash, unlocked all 13 Specialists at Level 3, and maxed Van Gear to Tier 3!", "clue");
     }
     syncDevDropdowns(); renderAll();
   });

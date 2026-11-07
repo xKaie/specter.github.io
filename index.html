@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>SPECTRAL_PROTOCOL v9.9 // TV Host + Mobile P.D.A.</title>
+  <title>SPECTRAL_PROTOCOL v10.0 // TV Host + Mobile P.D.A.</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <script src="https://unpkg.com/mqtt@5.3.4/dist/mqtt.min.js"></script>
@@ -40,7 +40,7 @@
         <div><span style="color:var(--cyan); font-weight:800; font-size:11px;">ACTION AP:</span> <span id="m-ap-pips"></span></div>
       </div>
       <div style="display:grid; grid-template-columns:1fr 1fr 1.4fr; gap:5px;">
-        <button type="button" class="btn-purple" id="btn-m-open-lobby" style="padding:8px 6px; font-size:11px;">🔄 Squad / Setup</button>
+        <button type="button" class="btn-purple" id="btn-m-open-lobby" style="padding:8px 6px; font-size:11px;">🔄 Squad / Map</button>
         <button type="button" class="btn-amber" id="btn-m-undo" style="padding:8px 6px; font-size:11px;">↩️ Undo</button>
         <button type="button" class="btn-green" id="btn-m-end-turn" style="padding:8px 6px; font-size:11px;">✓ END TURN</button>
       </div>
@@ -51,7 +51,7 @@
     <div class="m-body" id="m-tab-log" style="display:none;"></div>
 
     <div class="m-bottom-nav" style="flex-shrink:0;">
-      <button type="button" class="tab-btn active" id="m-nav-actions">🗺️ RADAR & GEAR</button>
+      <button type="button" class="tab-btn active" id="m-nav-actions">🗺️ RADAR &amp; GEAR</button>
       <button type="button" class="tab-btn" id="m-nav-journal">📖 JOURNAL</button>
       <button type="button" class="tab-btn" id="m-nav-log">📡 AUDIO LOG</button>
     </div>
@@ -65,16 +65,16 @@
 
   <!-- LOBBY & SHOP MODAL -->
   <div class="modal-overlay" id="lobby-modal">
-    <div class="modal-box" style="width:920px;">
+    <div class="modal-box" style="width:940px;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; gap:6px; flex-wrap:wrap;">
-        <h2 style="color:var(--cyan); font-size:16px;">SPECTRAL_PROTOCOL v9.9 // PROGRESSION, LOADOUT & TIERS</h2>
+        <h2 style="color:var(--cyan); font-size:16px;">SPECTRAL_PROTOCOL v10.0 // 7 MAPS, HACKER, WEATHER &amp; LIVE HAUNTS</h2>
         <div style="display:flex; gap:6px; align-items:center;">
           <span id="lobby-cash-badge" class="hud-pill" style="border-color:var(--green); color:var(--green); font-size:12px;">💵 $0</span>
           <button type="button" class="btn-amber" id="btn-reset-meta" title="Reset Cash, Unlocks & Tiers">🔄 Reset Save</button>
           <button type="button" class="btn-purple" id="btn-switch-to-mobile-mode">📱 Phone Mode</button>
         </div>
       </div>
-      <p style="color:var(--dim); font-size:10.5px; margin-bottom:6px;">Complete challenges to permanently unlock &amp; promote Specialists (T1&rarr;T3 signature gear). Connected phones can also pick Specialists &amp; launch directly from their P.D.A.!</p>
+      <p style="color:var(--dim); font-size:10.5px; margin-bottom:6px;">Complete challenges to unlock &amp; promote 13 Specialists (including 🧑‍💻 Hacker). Choose from 7 Map Locations &amp; 3 House Sizes. Phones can also pick classes &amp; launch directly from their P.D.A.!</p>
 
       <div style="font-weight:700; font-size:11px; color:var(--purple);">1. SELECT GAME MODE:</div>
       <div class="mode-row" id="lobby-mode-row"></div>
@@ -82,18 +82,23 @@
       <div style="font-weight:700; font-size:11px; color:var(--amber);">2. SELECT DIFFICULTY:</div>
       <div class="diff-row" id="lobby-diff-row"></div>
 
+      <div id="lobby-map-section">
+        <div style="font-weight:700; font-size:11px; color:var(--cyan);">3A. SELECT LOCATION ARCHETYPE (7 DISTINCT PLAYSTYLES):</div>
+        <div class="map-row" id="lobby-map-row"></div>
+      </div>
+
       <div id="lobby-size-section">
-        <div style="font-weight:700; font-size:11px; color:var(--cyan);">3. SELECT HOUSE SIZE (INTERIOR ROOMS + FREE YARDS/VAN):</div>
+        <div style="font-weight:700; font-size:11px; color:var(--cyan); margin-top:4px;">3B. SELECT CONTRACT SCALE (INTERIOR ROOMS + PAYOUT):</div>
         <div class="size-row" id="lobby-size-row"></div>
       </div>
 
       <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
-        <div style="font-weight:700; font-size:11px; color:var(--green);">4. ASSEMBLE SQUAD (INTERNS + UNLOCKED SPECIALISTS):</div>
+        <div style="font-weight:700; font-size:11px; color:var(--green);">4. ASSEMBLE SQUAD (INTERNS + 13 UNLOCKED SPECIALISTS):</div>
         <div id="lobby-intern-controls" style="display:flex; align-items:center; gap:6px;"></div>
       </div>
       <div class="lobby-grid" id="lobby-char-grid"></div>
 
-      <div style="font-weight:700; font-size:11px; color:var(--amber); margin-top:8px;">5. VAN EQUIPMENT TIER SHOP &amp; SANITY PILLS (⚠️ T2/T3 VAN UPGRADES LOST ON DEFEAT):</div>
+      <div style="font-weight:700; font-size:11px; color:var(--amber); margin-top:8px;">5. VAN EQUIPMENT TIER SHOP, MOTION SENSORS &amp; PILLS (⚠️ T2/T3 UPGRADES LOST ON DEFEAT):</div>
       <div class="van-shop-grid" id="lobby-van-shop"></div>
 
       <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; border-top:1px solid var(--border); padding-top:10px;">
@@ -122,7 +127,7 @@
   <div class="modal-overlay" id="upgrade-modal" style="display:none;">
     <div class="modal-box" style="width:720px; border-color:var(--green);">
       <h2 style="color:var(--green); font-size:16px; margin-bottom:4px;">⭐ CAMPAIGN SURVIVOR UPGRADE SHOP</h2>
-      <p style="color:var(--dim); font-size:11.5px; margin-bottom:10px;">Surviving Specialists earned <strong>1 Upgrade Token (⭐)</strong>! Spend tokens below before the next contract.</p>
+      <p style="color:var(--dim); font-size:11.5px; margin-bottom:10px;">Surviving Specialists earned <strong>1 Upgrade Token (⭐)</strong>! Spend tokens below before traveling to the next location on the trail.</p>
       <div id="upgrade-list-container" style="display:flex; flex-direction:column; gap:8px; margin-bottom:14px;"></div>
       <div style="display:flex; justify-content:flex-end;">
         <button type="button" class="btn-cyan" id="btn-proceed-next-mission" style="padding:7px 16px; font-size:12px;">PROCEED TO NEXT MISSION &raquo;</button>
@@ -155,12 +160,13 @@
 
   <header>
     <div class="brand">
-      <h1>SPECTRAL_PROTOCOL v9.9</h1>
+      <h1>SPECTRAL_PROTOCOL v10.0</h1>
       <span id="campaign-badge" style="color:var(--green); font-weight:700; font-size:11px;">💵 $0</span>
     </div>
     <div class="hud-stats">
       <button type="button" class="btn-purple" id="btn-open-phone-modal">📱 Connect Phones</button>
       <div class="hud-pill" id="hud-diff">NORMAL</div>
+      <div class="hud-pill" id="hud-weather" style="color:var(--cyan);">🌤️ CLEAR</div>
       <div class="hud-pill" id="hud-round">ROUND 1</div>
       <div class="hud-pill" id="hud-sanity">SANITY: 100%</div>
       <div class="hud-pill" id="hud-breaker">BREAKER: ON</div>
@@ -189,7 +195,7 @@
     <div class="center-col">
       <div class="map-header-bar">
         <div class="floor-tabs" id="floor-tabs-container"></div>
-        <span style="font-size:10px; color:var(--dim);">Search = <strong>1 MP or 1 AP</strong> &bull; Hunts = <strong>2 AP</strong> &bull; Charred Crucifix still counts as a <strong>Ward</strong>!</span>
+        <span id="map-rule-banner" style="font-size:10px; color:var(--dim);">Search = <strong>1 MP or 1 AP</strong> &bull; 🧑‍💻 Hacker hacks <strong>🔐 Security Doors</strong> from Van &bull; Charred Crucifix = <strong>Ward</strong>!</span>
       </div>
       <div class="map-viewport">
         <div class="board-grid" id="board-grid"></div>
