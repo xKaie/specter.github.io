@@ -279,7 +279,7 @@ header {
 .mode-row, .diff-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 5px 0 9px 0; }
 .map-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 5px 0 8px 0; }
 .size-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 5px 0 9px 0; }
-.diff-card, .size-card, .map-card, .mode-card, .lobby-char { background: #0b0e15; border: 2px solid var(--border); border-radius: 6px; padding: 7px; cursor: pointer; }
+.diff-card *, .size-card *, .map-card *, .mode-card *, .lobby-char * { pointer-events: none; }
 .mode-card.selected { border-color: var(--purple); background: rgba(213, 0, 249, 0.08); }
 .diff-card.selected { border-color: var(--amber); background: rgba(255, 171, 0, 0.08); }
 .map-card.selected { border-color: var(--cyan); background: rgba(0, 229, 255, 0.1); }
